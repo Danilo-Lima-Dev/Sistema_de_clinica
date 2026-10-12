@@ -75,9 +75,21 @@ class TestPacientes(unittest.TestCase):
             with self.assertRaises(ErroValidacao):
                 pacientes.cadastrar(nome, cpf, nasc)
 
-    def test_cpf_invalido_e_duplicado(self):
+    def test_cpf_com_menos_de_11_numeros_e_sempre_recusado(self):
         with self.assertRaises(ErroValidacao):
-            pacientes.cadastrar("Ana", "12345678900", "25/03/1990")
+            pacientes.cadastrar("Ana", "123456789", "25/03/1990")
+
+    def test_cpf_falso_modo_teste_e_modo_estrito(self):
+        pacientes.VALIDAR_CPF = False  # modo de teste: aceita CPF falso
+        pacientes.cadastrar("Ana", "12345678900", "25/03/1990")
+        pacientes.VALIDAR_CPF = True  # modo estrito: confere os dígitos
+        try:
+            with self.assertRaises(ErroValidacao):
+                pacientes.cadastrar("Beto", "11111111111", "25/03/1990")
+        finally:
+            pacientes.VALIDAR_CPF = False
+
+    def test_cpf_duplicado(self):
         pacientes.cadastrar("Ana", CPF_OK, "25/03/1990")
         with self.assertRaises(ErroValidacao):
             pacientes.cadastrar("Outra Ana", CPF_OK, "01/01/1980")

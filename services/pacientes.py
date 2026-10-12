@@ -20,6 +20,11 @@ from services.validacoes import (
 )
 
 
+# MODO DE TESTE: False = aceita CPFs não verdadeiros (só exige 11 números).
+# Para voltar a conferir os dígitos verificadores, troque para True.
+VALIDAR_CPF = False
+
+
 def _validar(nome, cpf, nascimento, telefone, email):
     """Valida os campos e devolve os dados limpos, prontos para gravar."""
     nome = (nome or "").strip()
@@ -29,8 +34,10 @@ def _validar(nome, cpf, nascimento, telefone, email):
     cpf = somente_digitos(cpf)
     if not cpf:
         raise ErroValidacao("O CPF é obrigatório.")
-    if not cpf_valido(cpf):
+    if len(cpf) != 11:
         raise ErroValidacao("CPF inválido. Digite os 11 números, sem pontos nem traço.")
+    if VALIDAR_CPF and not cpf_valido(cpf):
+        raise ErroValidacao("CPF inválido. Confira os números digitados.")
 
     if not (nascimento or "").strip():
         raise ErroValidacao("A data de nascimento é obrigatória.")

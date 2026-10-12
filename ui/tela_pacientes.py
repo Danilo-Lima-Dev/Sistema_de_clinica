@@ -21,7 +21,7 @@ def aplicar_mascara(variavel, funcao, entrada):
         novo = funcao(variavel.get())
         if novo != variavel.get():
             variavel.set(novo)
-        entrada.icursor("end")  # cursor sempre na última posição
+        entrada.after_idle(lambda: entrada.icursor("end")) #alteração da função para o cursor ir para o final
 
     variavel.trace_add("write", ao_alterar)
 
