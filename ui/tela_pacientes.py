@@ -14,13 +14,14 @@ from services.validacoes import (
 )
 
 
-def aplicar_mascara(variavel, funcao):
-    """Faz o campo se ajustar sozinho enquanto o usuário digita ou cola."""
+def aplicar_mascara(variavel, funcao, entrada):
+    """Ajusta o campo enquanto o usuário digita e mantém o cursor no final."""
 
     def ao_alterar(*_):
         novo = funcao(variavel.get())
         if novo != variavel.get():
             variavel.set(novo)
+        entrada.icursor("end")  # cursor sempre na última posição
 
     variavel.trace_add("write", ao_alterar)
 
@@ -46,11 +47,6 @@ class TelaPacientes(ttk.Frame):
         self.var_email = tk.StringVar()
         self.var_busca = tk.StringVar()
 
-        # CPF e telefone: só números, sem pontuação. Data: barras automáticas.
-        aplicar_mascara(self.var_cpf, lambda t: somente_digitos(t)[:11])
-        aplicar_mascara(self.var_telefone, lambda t: somente_digitos(t)[:11])
-        aplicar_mascara(self.var_nascimento, mascara_data)
-
         self._montar_formulario()
         self._montar_busca()
         self._montar_tabela()
@@ -68,6 +64,7 @@ class TelaPacientes(ttk.Frame):
             ("Telefone (com DDD)", self.var_telefone, 14, "Ex.: 11987654321"),
             ("E-mail", self.var_email, 40, ""),
         ]
+        self.entradas = []
         for linha, (rotulo, variavel, largura, dica) in enumerate(campos):
             ttk.Label(self.quadro, text=rotulo).grid(row=linha, column=0, sticky="w", pady=3)
             entrada = ttk.Entry(self.quadro, textvariable=variavel, width=largura)
@@ -76,8 +73,13 @@ class TelaPacientes(ttk.Frame):
                 ttk.Label(self.quadro, text=dica, foreground="gray").grid(
                     row=linha, column=2, sticky="w"
                 )
-            if linha == 0:
-                self.entrada_nome = entrada
+            self.entradas.append(entrada)
+
+        self.entrada_nome = self.entradas[0]
+        # CPF e telefone: só números, sem pontuação. Data: barras automáticas.
+        aplicar_mascara(self.var_cpf, lambda t: somente_digitos(t)[:11], self.entradas[1])
+        aplicar_mascara(self.var_nascimento, mascara_data, self.entradas[2])
+        aplicar_mascara(self.var_telefone, lambda t: somente_digitos(t)[:11], self.entradas[3])
 
         botoes = ttk.Frame(self.quadro)
         botoes.grid(row=len(campos), column=0, columnspan=3, sticky="w", pady=(10, 0))
