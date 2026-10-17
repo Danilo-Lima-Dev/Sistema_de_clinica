@@ -1,7 +1,7 @@
 # Sistema de Clínica
 
 Trabalho prático de Desenvolvimento Rápido de Aplicações em Python.
-Aplicação desktop (Tkinter) com banco de dados SQLite.
+Aplicação desktop (CustomTkinter) com banco de dados SQLite.
 
 ## Estado atual (primeira versão)
 
@@ -18,7 +18,11 @@ O banco já é criado com as 4 tabelas do modelo (`especialidade`, `paciente`, `
 - Python 3.9 ou superior
 - Tkinter (já vem com o Python no Windows e no macOS)
   - Linux (Debian/Ubuntu): `sudo apt install python3-tk`
-- Nenhuma biblioteca externa: não é preciso rodar `pip install`.
+- CustomTkinter (visual moderno). Instale uma vez com:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Como executar
 
@@ -26,7 +30,12 @@ O banco já é criado com as 4 tabelas do modelo (`especialidade`, `paciente`, `
 python main.py
 ```
 
-Na primeira execução o arquivo `clinica.db` é criado automaticamente na pasta do projeto.
+Na primeira execução o arquivo `clinica.db` é criado automaticamente na pasta do projeto,
+junto com o usuário padrão do login: **usuário `admin`, senha `admin123`** (troque depois).
+
+## Personalizar a aparência
+
+Nome do programa, cores, fontes e modo claro/escuro ficam todos em `ui/tema.py`.
 Para começar do zero, feche o programa e apague o arquivo `clinica.db`.
 
 ## Como testar
@@ -44,7 +53,11 @@ python -m unittest discover -s tests -v
 | `clinica.db` | Banco de dados, criado automaticamente na primeira execução. |
 | `services/validacoes.py` | Funções de apoio: validação e formatação de CPF, datas, telefone e e-mail. |
 | `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
-| `ui/app.py` | Janela principal, com as abas. |
+| `services/autenticacao.py` | Login: usuários, senha com hash (PBKDF2) e conferência. |
+| `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
+| `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo, botão e tabela. |
+| `ui/tela_login.py` | Tela de login. |
+| `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas. |
 | `ui/tela_pacientes.py` | Tela de pacientes (funcional): formulário, busca, tabela, mensagens e máscaras de digitação. |
 | `ui/telas_prototipo.py` | Protótipos das telas de Profissionais e Consultas (ainda sem ligação com o banco). |
 | `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados. |

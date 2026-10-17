@@ -1,7 +1,11 @@
-"""Tela de cadastro de pacientes (cadastrar, listar, buscar, alterar e excluir)."""
+"""Tela de cadastro de pacientes (cadastrar, listar, buscar, alterar e excluir).
+
+Visual em CustomTkinter. A lógica (validações, banco) continua em `services/`.
+"""
 import sqlite3
-import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
+
+import customtkinter as ctk
 
 from services import pacientes
 from services.validacoes import (
@@ -12,6 +16,7 @@ from services.validacoes import (
     mascara_data,
     somente_digitos,
 )
+from ui import componentes, tema
 
 
 def aplicar_mascara(variavel, funcao, entrada):
@@ -21,108 +26,129 @@ def aplicar_mascara(variavel, funcao, entrada):
         novo = funcao(variavel.get())
         if novo != variavel.get():
             variavel.set(novo)
-        entrada.after_idle(lambda: entrada.icursor("end")) #alteração da função para o cursor ir para o final
+        entrada.after_idle(lambda: entrada.icursor("end"))  # cursor sempre no final
 
     variavel.trace_add("write", ao_alterar)
 
 
-class TelaPacientes(ttk.Frame):
+class TelaPacientes(ctk.CTkFrame):
+    NOME_MENU = "Pacientes"  # texto do cartão no menu lateral
     COLUNAS = (
         ("id", "ID", 50),
         ("nome", "Nome", 230),
-        ("cpf", "CPF", 120),
-        ("nascimento", "Nascimento", 100),
-        ("telefone", "Telefone", 120),
-        ("email", "E-mail", 200),
+        ("cpf", "CPF", 130),
+        ("nascimento", "Nascimento", 110),
+        ("telefone", "Telefone", 130),
+        ("email", "E-mail", 220),
     )
 
     def __init__(self, master):
-        super().__init__(master, padding=10)
+        super().__init__(master, fg_color="transparent")
         self.id_selecionado = None  # None = cadastrando; número = editando
 
-        self.var_nome = tk.StringVar()
-        self.var_cpf = tk.StringVar()
-        self.var_nascimento = tk.StringVar()
-        self.var_telefone = tk.StringVar()
-        self.var_email = tk.StringVar()
-        self.var_busca = tk.StringVar()
+        self.var_nome = ctk.StringVar()
+        self.var_cpf = ctk.StringVar()
+        self.var_nascimento = ctk.StringVar()
+        self.var_telefone = ctk.StringVar()
+        self.var_email = ctk.StringVar()
+        self.var_busca = ctk.StringVar()
 
+        # A linha 2 (tabela) é a que estica quando a janela cresce.
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        componentes.cabecalho(
+            self, "Pacientes", "Cadastre, busque, altere e exclua pacientes."
+        ).grid(row=0, column=0, sticky="w", pady=(0, 16))
         self._montar_formulario()
-        self._montar_busca()
-        self._montar_tabela()
+        self._montar_lista()
         self.atualizar_lista()
 
     # ------------------------------------------------------------ layout
     def _montar_formulario(self):
-        self.quadro = ttk.LabelFrame(self, text="Novo paciente", padding=10)
-        self.quadro.pack(fill="x")
+        self.cartao_form = componentes.cartao(self)
+        self.cartao_form.grid(row=1, column=0, sticky="ew", pady=(0, 16))
+        self.titulo_form = componentes.titulo_cartao(self.cartao_form, "Novo paciente")
 
+        # Grade de campos: 3 colunas iguais.
+        grade = ctk.CTkFrame(self.cartao_form, fg_color="transparent")
+        grade.pack(fill="x", padx=20)
+        for coluna in range(3):
+            grade.grid_columnconfigure(coluna, weight=1, uniform="campos")
+
+        # (rótulo, dica, variável, linha, coluna, quantas colunas ocupa)
         campos = [
-            ("Nome *", self.var_nome, 40, ""),
-            ("CPF * (só números)", self.var_cpf, 14, "Ex.: 12345678909"),
-            ("Nascimento * (DD/MM/AAAA)", self.var_nascimento, 14, "Ex.: 25/03/1990"),
-            ("Telefone (com DDD)", self.var_telefone, 14, "Ex.: 11987654321"),
-            ("E-mail", self.var_email, 40, ""),
+            ("Nome *", "", self.var_nome, 0, 0, 2),
+            ("CPF *", "só números", self.var_cpf, 0, 2, 1),
+            ("Nascimento *", "DD/MM/AAAA", self.var_nascimento, 1, 0, 1),
+            ("Telefone", "com DDD", self.var_telefone, 1, 1, 1),
+            ("E-mail", "", self.var_email, 1, 2, 1),
         ]
-        self.entradas = []
-        for linha, (rotulo, variavel, largura, dica) in enumerate(campos):
-            ttk.Label(self.quadro, text=rotulo).grid(row=linha, column=0, sticky="w", pady=3)
-            entrada = ttk.Entry(self.quadro, textvariable=variavel, width=largura)
-            entrada.grid(row=linha, column=1, sticky="w", padx=8, pady=3)
-            if dica:
-                ttk.Label(self.quadro, text=dica, foreground="gray").grid(
-                    row=linha, column=2, sticky="w"
-                )
-            self.entradas.append(entrada)
+        entradas = {}
+        for rotulo, dica, variavel, linha, coluna, ocupa in campos:
+            bloco, entrada = componentes.campo_texto(grade, rotulo, variavel, dica)
+            bloco.grid(
+                row=linha, column=coluna, columnspan=ocupa, sticky="ew",
+                padx=(0 if coluna == 0 else 8, 8 if coluna + ocupa < 3 else 0),
+                pady=(0, 12),
+            )
+            entradas[rotulo] = entrada
 
-        self.entrada_nome = self.entradas[0]
+        self.entrada_nome = entradas["Nome *"]
         # CPF e telefone: só números, sem pontuação. Data: barras automáticas.
-        aplicar_mascara(self.var_cpf, lambda t: somente_digitos(t)[:11], self.entradas[1])
-        aplicar_mascara(self.var_nascimento, mascara_data, self.entradas[2])
-        aplicar_mascara(self.var_telefone, lambda t: somente_digitos(t)[:11], self.entradas[3])
+        aplicar_mascara(self.var_cpf, lambda t: somente_digitos(t)[:11], entradas["CPF *"])
+        aplicar_mascara(self.var_nascimento, mascara_data, entradas["Nascimento *"])
+        aplicar_mascara(
+            self.var_telefone, lambda t: somente_digitos(t)[:11], entradas["Telefone"]
+        )
 
-        botoes = ttk.Frame(self.quadro)
-        botoes.grid(row=len(campos), column=0, columnspan=3, sticky="w", pady=(10, 0))
-        self.botao_salvar = ttk.Button(botoes, text="Cadastrar", command=self.salvar)
+        botoes = ctk.CTkFrame(self.cartao_form, fg_color="transparent")
+        botoes.pack(fill="x", padx=20, pady=(2, 20))
+        self.botao_salvar = componentes.botao(botoes, "Cadastrar", self.salvar, largura=170)
         self.botao_salvar.pack(side="left")
-        ttk.Button(botoes, text="Limpar / Novo", command=self.limpar).pack(side="left", padx=6)
-        self.botao_excluir = ttk.Button(
-            botoes, text="Excluir", command=self.excluir, state="disabled"
+        componentes.botao(
+            botoes, "Limpar / Novo", self.limpar, estilo="secundario"
+        ).pack(side="left", padx=10)
+        self.botao_excluir = componentes.botao(
+            botoes, "Excluir", self.excluir, estilo="perigo", state="disabled"
         )
         self.botao_excluir.pack(side="left")
 
-    def _montar_busca(self):
-        quadro = ttk.Frame(self)
-        quadro.pack(fill="x", pady=(12, 4))
-        ttk.Label(quadro, text="Buscar por nome ou CPF:").pack(side="left")
-        entrada = ttk.Entry(quadro, textvariable=self.var_busca, width=30)
-        entrada.pack(side="left", padx=6)
-        entrada.bind("<Return>", lambda _e: self.buscar())
-        ttk.Button(quadro, text="Buscar", command=self.buscar).pack(side="left")
-        ttk.Button(quadro, text="Mostrar todos", command=self.mostrar_todos).pack(
-            side="left", padx=6
-        )
+    def _montar_lista(self):
+        cartao = componentes.cartao(self)
+        cartao.grid(row=2, column=0, sticky="nsew")
+        cartao.grid_columnconfigure(0, weight=1)
+        cartao.grid_rowconfigure(1, weight=1)
 
-    def _montar_tabela(self):
-        quadro = ttk.Frame(self)
-        quadro.pack(fill="both", expand=True)
-        self.tabela = ttk.Treeview(
-            quadro,
-            columns=[c[0] for c in self.COLUNAS],
-            show="headings",
-            selectmode="browse",
+        # Barra de busca
+        busca = ctk.CTkFrame(cartao, fg_color="transparent")
+        busca.grid(row=0, column=0, sticky="ew", padx=20, pady=(18, 10))
+        ctk.CTkLabel(
+            busca, text="Buscar por nome ou CPF:", font=tema.fonte(12, True),
+            text_color=tema.COR_TEXTO,
+        ).pack(side="left", padx=(0, 10))
+        entrada = ctk.CTkEntry(
+            busca, textvariable=self.var_busca, width=280, height=38,
+            corner_radius=tema.RAIO_BOTAO, border_color=tema.COR_BORDA,
+            fg_color=tema.COR_CARTAO, text_color=tema.COR_TEXTO, font=tema.fonte(13),
         )
-        for chave, titulo, largura in self.COLUNAS:
-            self.tabela.heading(chave, text=titulo)
-            self.tabela.column(chave, width=largura, anchor="w")
-        barra = ttk.Scrollbar(quadro, orient="vertical", command=self.tabela.yview)
-        self.tabela.configure(yscrollcommand=barra.set)
-        self.tabela.pack(side="left", fill="both", expand=True)
-        barra.pack(side="right", fill="y")
+        entrada.pack(side="left")
+        entrada.bind("<Return>", lambda _e: self.buscar())
+        componentes.botao(busca, "Buscar", self.buscar, largura=100).pack(side="left", padx=10)
+        componentes.botao(
+            busca, "Mostrar todos", self.mostrar_todos, estilo="secundario"
+        ).pack(side="left")
+
+        # Tabela
+        quadro, self.tabela = componentes.criar_tabela(cartao, self.COLUNAS, altura=6)
+        quadro.grid(row=1, column=0, sticky="nsew", padx=20)
         self.tabela.bind("<<TreeviewSelect>>", self._ao_selecionar)
 
-        self.rotulo_total = ttk.Label(self, text="")
-        self.rotulo_total.pack(anchor="w", pady=(4, 0))
+        self.rotulo_total = ctk.CTkLabel(
+            cartao, text="", font=tema.fonte(12),
+            text_color=tema.COR_TEXTO_SUAVE, anchor="w",
+        )
+        self.rotulo_total.grid(row=2, column=0, sticky="w", padx=20, pady=(8, 14))
 
     # ------------------------------------------------------------- dados
     def atualizar_lista(self):
@@ -148,7 +174,7 @@ class TelaPacientes(ttk.Frame):
                     p["email"] or "",
                 ),
             )
-        self.rotulo_total.config(text=f"{len(lista)} paciente(s) listado(s).")
+        self.rotulo_total.configure(text=f"{len(lista)} paciente(s) listado(s).")
 
     def _ao_selecionar(self, _evento):
         selecionados = self.tabela.selection()
@@ -161,9 +187,9 @@ class TelaPacientes(ttk.Frame):
         self.var_nascimento.set(nascimento)
         self.var_telefone.set(telefone)
         self.var_email.set(email)
-        self.quadro.config(text=f"Editando paciente #{self.id_selecionado}")
-        self.botao_salvar.config(text="Salvar alterações")
-        self.botao_excluir.config(state="normal")
+        self.titulo_form.configure(text=f"Editando paciente #{self.id_selecionado}")
+        self.botao_salvar.configure(text="Salvar alterações")
+        self.botao_excluir.configure(state="normal")
 
     # ------------------------------------------------------------ ações
     def salvar(self):
@@ -221,9 +247,9 @@ class TelaPacientes(ttk.Frame):
         ):
             variavel.set("")
         self.tabela.selection_remove(self.tabela.selection())
-        self.quadro.config(text="Novo paciente")
-        self.botao_salvar.config(text="Cadastrar")
-        self.botao_excluir.config(state="disabled")
+        self.titulo_form.configure(text="Novo paciente")
+        self.botao_salvar.configure(text="Cadastrar")
+        self.botao_excluir.configure(state="disabled")
         self.entrada_nome.focus_set()
 
     def buscar(self):

@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import database  # noqa: E402
-from services import pacientes  # noqa: E402
+from services import autenticacao, pacientes  # noqa: E402
 from services.validacoes import (  # noqa: E402
     ErroValidacao,
     cpf_valido,
@@ -138,6 +138,47 @@ class TestPacientes(unittest.TestCase):
         with self.assertRaises(ErroValidacao):  # RN12
             pacientes.excluir(com_consulta)
         self.assertEqual(len(pacientes.listar()), 1)
+
+
+class TestAutenticacao(unittest.TestCase):
+    def setUp(self):
+        self._pasta = tempfile.TemporaryDirectory()
+        database.DB_PATH = Path(self._pasta.name) / "login.db"
+        database.criar_tabelas()
+
+    def tearDown(self):
+        self._pasta.cleanup()
+
+    def test_usuario_padrao_criado_uma_vez(self):
+        autenticacao.criar_usuario_padrao()
+        autenticacao.criar_usuario_padrao()  # não duplica
+        with database.transacao() as con:
+            total = con.execute("SELECT COUNT(*) FROM usuario").fetchone()[0]
+        self.assertEqual(total, 1)
+
+    def test_login_correto(self):
+        autenticacao.criar_usuario_padrao()
+        usuario = autenticacao.autenticar("ADMIN", autenticacao.SENHA_PADRAO)  # ignora maiúsculas
+        self.assertEqual(usuario["login"], "admin")
+
+    def test_login_errado(self):
+        autenticacao.criar_usuario_padrao()
+        for login, senha in (("admin", "errada"), ("naoexiste", "admin123"), ("", ""), ("admin", "")):
+            with self.assertRaises(ErroValidacao):
+                autenticacao.autenticar(login, senha)
+
+    def test_senha_nao_fica_em_texto_puro(self):
+        autenticacao.cadastrar_usuario("Ana", "ana", "segredo123")
+        with database.transacao() as con:
+            guardado = con.execute("SELECT senha_hash FROM usuario").fetchone()[0]
+        self.assertNotIn("segredo123", guardado)
+
+    def test_cadastro_invalido(self):
+        autenticacao.cadastrar_usuario("Ana", "ana", "segredo123")
+        with self.assertRaises(ErroValidacao):
+            autenticacao.cadastrar_usuario("Outra", "ANA", "segredo123")  # login repetido
+        with self.assertRaises(ErroValidacao):
+            autenticacao.cadastrar_usuario("Bia", "bia", "123")  # senha curta
 
 
 class TestBanco(unittest.TestCase):

@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS especialidade (
     nome TEXT NOT NULL UNIQUE
 );
 
+-- Usuários que podem entrar no sistema (tela de login).
+-- A senha NUNCA é guardada em texto puro: fica só o hash ("salt$hash").
+CREATE TABLE IF NOT EXISTS usuario (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome       TEXT NOT NULL,
+    login      TEXT NOT NULL UNIQUE,
+    senha_hash TEXT NOT NULL,
+    ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1))
+);
+
 CREATE TABLE IF NOT EXISTS paciente (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     nome            TEXT NOT NULL,
