@@ -1,21 +1,23 @@
 # Sistema de Clínica
 
 Trabalho prático de Desenvolvimento Rápido de Aplicações em Python.
-Aplicação de **terminal** (menu em texto) com banco de dados SQLite.
+Aplicação desktop (Tkinter) com banco de dados SQLite.
 
 ## Estado atual (primeira versão)
 
-| Módulo | Situação |
+| Tela | Situação |
 | --- | --- |
 | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
-| Profissionais | Em desenvolvimento |
-| Consultas | Em desenvolvimento |
+| Profissionais | Protótipo (layout, sem ligação com o banco) |
+| Consultas | Protótipo (layout, sem ligação com o banco) |
 
 O banco já é criado com as 4 tabelas do modelo (`especialidade`, `paciente`, `profissional`, `consulta`).
 
 ## Requisitos
 
 - Python 3.9 ou superior
+- Tkinter (já vem com o Python no Windows e no macOS)
+  - Linux (Debian/Ubuntu): `sudo apt install python3-tk`
 - Nenhuma biblioteca externa: não é preciso rodar `pip install`.
 
 ## Como executar
@@ -27,23 +29,6 @@ python main.py
 Na primeira execução o arquivo `clinica.db` é criado automaticamente na pasta do projeto.
 Para começar do zero, feche o programa e apague o arquivo `clinica.db`.
 
-## Como usar
-
-O programa mostra um menu numerado. Digite o número da opção e aperte Enter.
-
-```
-SISTEMA DE CLÍNICA
-  1 - Pacientes        →  1 Cadastrar  2 Listar  3 Buscar  4 Alterar  5 Excluir
-  2 - Profissionais (em desenvolvimento)
-  3 - Consultas (em desenvolvimento)
-  0 - Sair
-```
-
-- **CPF e telefone:** digite só os números, sem pontos, traço ou parênteses.
-- **Data:** digite `25/03/1990` ou `25031990`.
-- **Alterar:** aperte Enter para manter o valor que aparece entre colchetes; digite `-` para limpar um campo opcional.
-- **Erro de digitação:** o sistema explica o problema e deixa corrigir sem digitar tudo de novo.
-
 ## Como testar
 
 ```bash
@@ -54,29 +39,28 @@ python -m unittest discover -s tests -v
 
 | Arquivo | Função |
 | --- | --- |
-| `main.py` | Ponto de entrada: cria o banco (se não existir) e abre o menu. |
-| `database.py` | Conexão com o SQLite e criação das 4 tabelas. |
+| `main.py` | Ponto de entrada: cria o banco (se não existir) e abre a janela. |
+| `database.py` | Conexão com o SQLite e criação das 4 tabelas (`especialidade`, `paciente`, `profissional`, `consulta`). |
 | `clinica.db` | Banco de dados, criado automaticamente na primeira execução. |
-| `cli/app.py` | Menu principal. |
-| `cli/menu_pacientes.py` | Menu de pacientes: perguntas, tabela e mensagens. |
-| `cli/entrada.py` | Funções de apoio para ler dados e mostrar títulos. |
-| `services/validacoes.py` | Validação e formatação de CPF, datas, telefone e e-mail. |
-| `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes. |
+| `services/validacoes.py` | Funções de apoio: validação e formatação de CPF, datas, telefone e e-mail. |
+| `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
+| `ui/app.py` | Janela principal, com as abas. |
+| `ui/tela_pacientes.py` | Tela de pacientes (funcional): formulário, busca, tabela, mensagens e máscaras de digitação. |
+| `ui/telas_prototipo.py` | Protótipos das telas de Profissionais e Consultas (ainda sem ligação com o banco). |
 | `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados. |
-| `__init__.py` (em `cli/` e `services/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
+| `__init__.py` (em `services/` e `ui/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
 
 ## Organização em camadas
 
 ```
-main.py → cli/ (terminal) → services/ (regras) → database.py → clinica.db
+main.py → ui/ (telas) → services/ (regras) → database.py → clinica.db
 ```
 
-- **cli/**: só pergunta e mostra os dados; não escreve SQL.
+- **ui/**: só cuida do que aparece na tela e não escreve SQL.
 - **services/**: concentra as validações e as regras de negócio.
 - **database.py**: concentra o acesso ao banco.
 
-A interface foi trocada de gráfica (Tkinter) para terminal sem mexer em `services/` nem em `database.py`.
-Isso mostra o benefício da separação em camadas: as regras funcionam com qualquer tipo de interface.
+Essa separação permite alterar o visual sem quebrar as regras (e o contrário), e facilita a divisão do trabalho entre os integrantes.
 
 ## Regras já aplicadas
 

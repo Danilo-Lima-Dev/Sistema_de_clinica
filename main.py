@@ -1,14 +1,14 @@
-"""Ponto de entrada do Sistema de Clínica (versão de terminal).
+"""Ponto de entrada do Sistema de Clínica.
 
 Execute com:  python main.py
 """
 import database
-from cli.app import executar
+from ui.app import App
 
 
 def main():
     database.criar_tabelas()  # cria o banco na primeira execução
-    executar()
+    App().mainloop()
 
 
 if __name__ == "__main__":
