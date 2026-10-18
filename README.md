@@ -3,13 +3,13 @@
 Trabalho prático de Desenvolvimento Rápido de Aplicações em Python.
 Aplicação desktop (CustomTkinter) com banco de dados SQLite.
 
-## Estado atual (primeira versão)
+## Estado atual
 
 | Tela | Situação |
 | --- | --- |
 | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
-| Profissionais | Protótipo (layout, sem ligação com o banco) |
-| Consultas | Protótipo (layout, sem ligação com o banco) |
+| Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
+| Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada e cancelar |
 
 O banco já é criado com as 4 tabelas do modelo (`especialidade`, `paciente`, `profissional`, `consulta`).
 
@@ -51,17 +51,21 @@ python -m unittest discover -s tests -v
 | `main.py` | Ponto de entrada: cria o banco (se não existir) e abre a janela. |
 | `database.py` | Conexão com o SQLite e criação das 4 tabelas (`especialidade`, `paciente`, `profissional`, `consulta`). |
 | `clinica.db` | Banco de dados, criado automaticamente na primeira execução. |
-| `services/validacoes.py` | Funções de apoio: validação e formatação de CPF, datas, telefone e e-mail. |
+| `services/validacoes.py` | Funções de apoio: validação e formatação de CPF, datas, horários, telefone e e-mail. |
 | `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
+| `services/profissionais.py` | Regras de negócio e SQL dos profissionais (cadastrar, listar, buscar, alterar, inativar, excluir). |
+| `services/consultas.py` | Regras de negócio e SQL dos agendamentos (agendar, remarcar, cancelar, registrar realização, prevenção de conflito). |
 | `services/autenticacao.py` | Login: usuários, senha com hash (PBKDF2) e conferência. |
 | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
-| `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo, botão e tabela. |
+| `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
 | `ui/tela_login.py` | Tela de login. |
-| `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas. |
-| `ui/tela_pacientes.py` | Tela de pacientes (funcional): formulário, busca, tabela, mensagens e máscaras de digitação. |
-| `ui/telas_prototipo.py` | Protótipos das telas de Profissionais e Consultas (ainda sem ligação com o banco). |
-| `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados. |
+| `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas com atualização automática. |
+| `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
+| `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |
+| `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação e cancelamento. |
+| `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
 | `__init__.py` (em `services/` e `ui/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
+
 
 ## Organização em camadas
 

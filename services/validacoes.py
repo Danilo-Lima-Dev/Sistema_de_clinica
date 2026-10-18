@@ -94,3 +94,39 @@ def date_para_br(data):
 def iso_para_data_br(texto_iso):
     """'AAAA-MM-DD' (do banco) -> 'DD/MM/AAAA' (para a tela)."""
     return date_para_br(date.fromisoformat(texto_iso))
+
+
+# ----------------------------------------------------------------- horários
+def mascara_hora(texto):
+    """Digitou 0930 -> 09:30 (usado enquanto o usuário digita)."""
+    d = somente_digitos(texto)[:4]
+    if len(d) <= 2:
+        return d
+    return f"{d[:2]}:{d[2:]}"
+
+
+def hora_valida(texto):
+    """Confere se o texto está no formato HH:MM (00:00 a 23:59)."""
+    texto = (texto or "").strip()
+    return bool(re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", texto))
+
+
+def calcular_hora_fim(hora_inicio, duracao_minutos=30):
+    """Calcula o horário de término (padrão: 30 minutos depois)."""
+    if not hora_valida(hora_inicio):
+        return hora_inicio
+    horas, minutos = map(int, hora_inicio.split(":"))
+    total_min = horas * 60 + minutos + duracao_minutos
+    return f"{(total_min // 60) % 24:02d}:{total_min % 60:02d}"
+
+
+def validar_data_hora_futura(data_br, hora_str):
+    """Verifica se data e horário não estão no passado (RN05)."""
+    data_obj = data_br_para_date(data_br)
+    if not hora_valida(hora_str):
+        raise ErroValidacao("Horário inválido. Use o formato HH:MM, por exemplo 09:30.")
+    h, m = map(int, hora_str.split(":"))
+    agendamento = datetime.combine(data_obj, datetime.min.time()).replace(hour=h, minute=m)
+    if agendamento < datetime.now():
+        raise ErroValidacao("Não é permitido agendar consultas em data e hora passadas.")
+

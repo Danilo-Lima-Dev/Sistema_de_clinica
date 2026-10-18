@@ -7,14 +7,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import database  # noqa: E402
-from services import autenticacao, pacientes  # noqa: E402
+from services import autenticacao, consultas, pacientes, profissionais  # noqa: E402
 from services.validacoes import (  # noqa: E402
     ErroValidacao,
+    calcular_hora_fim,
     cpf_valido,
     data_br_para_date,
     formatar_cpf,
+    hora_valida,
     mascara_data,
+    mascara_hora,
 )
+
 
 CPF_OK = "52998224725"  # CPF de teste com dígitos verificadores corretos
 CPF_OK_2 = "11144477735"
@@ -192,6 +196,143 @@ class TestBanco(unittest.TestCase):
             with database.transacao() as con:
                 total = con.execute("SELECT COUNT(*) FROM especialidade").fetchone()[0]
             self.assertEqual(total, len(database.ESPECIALIDADES_INICIAIS))  # sem duplicar
+
+
+class TestProfissionais(unittest.TestCase):
+    def setUp(self):
+        self._pasta = tempfile.TemporaryDirectory()
+        database.DB_PATH = Path(self._pasta.name) / "teste_prof.db"
+        database.criar_tabelas()
+
+    def tearDown(self):
+        self._pasta.cleanup()
+
+    def test_cadastrar_e_listar(self):
+        id_m = profissionais.cadastrar("Dr. Roberto Carlos", "CRM/SP 123456", "Cardiologia", "11987654321")
+        lista = profissionais.listar()
+        self.assertEqual(len(lista), 1)
+        self.assertEqual(lista[0]["id"], id_m)
+        self.assertEqual(lista[0]["nome"], "Dr. Roberto Carlos")
+        self.assertEqual(lista[0]["registro"], "CRM/SP 123456")
+        self.assertEqual(lista[0]["especialidade"], "Cardiologia")
+        self.assertEqual(lista[0]["ativo"], 1)
+
+    def test_obrigatorios(self):
+        with self.assertRaises(ErroValidacao):
+            profissionais.cadastrar("", "CRM 123", "Cardiologia")
+        with self.assertRaises(ErroValidacao):
+            profissionais.cadastrar("Dr. Roberto", "", "Cardiologia")
+        with self.assertRaises(ErroValidacao):
+            profissionais.cadastrar("Dr. Roberto", "CRM 123", "")
+
+    def test_registro_duplicado(self):
+        profissionais.cadastrar("Dr. Um", "CRM 999", "Pediatria")
+        with self.assertRaises(ErroValidacao):  # RN06
+            profissionais.cadastrar("Dr. Dois", "CRM 999", "Cardiologia")
+
+    def test_buscar_por_nome_e_especialidade(self):
+        profissionais.cadastrar("Dra. Paula", "CRM 111", "Pediatria")
+        profissionais.cadastrar("Dr. Lucas", "CRM 222", "Dermatologia")
+        # RF04
+        self.assertEqual([p["nome"] for p in profissionais.listar("paula")], ["Dra. Paula"])
+        self.assertEqual([p["nome"] for p in profissionais.listar("dermato")], ["Dr. Lucas"])
+        self.assertEqual(profissionais.listar("inexistente"), [])
+
+    def test_atualizar(self):
+        id_m = profissionais.cadastrar("Dr. Carlos", "CRM 333", "Ortopedia")
+        profissionais.atualizar(id_m, "Dr. Carlos Silva", "CRM 333", "Ortopedia", "11999998888")
+        obter = profissionais.obter(id_m)
+        self.assertEqual(obter["nome"], "Dr. Carlos Silva")
+        self.assertEqual(obter["telefone"], "11999998888")
+
+    def test_alternar_ativo(self):
+        id_m = profissionais.cadastrar("Dr. Ativo", "CRM 444", "Clínica Geral")
+        novo = profissionais.alternar_ativo(id_m)
+        self.assertEqual(novo, 0)
+        self.assertEqual(profissionais.obter(id_m)["ativo"], 0)
+        novo = profissionais.alternar_ativo(id_m)
+        self.assertEqual(novo, 1)
+
+    def test_excluir_e_bloqueio_com_consulta(self):
+        id_m = profissionais.cadastrar("Dr. Sem Consulta", "CRM 555", "Pediatria")
+        profissionais.excluir(id_m)
+        self.assertEqual(profissionais.listar(), [])
+
+        id_com = profissionais.cadastrar("Dr. Com Consulta", "CRM 666", "Cardiologia")
+        id_pac = pacientes.cadastrar("Paciente Teste", CPF_OK, "01/01/1990")
+        consultas.agendar(id_pac, id_com, "15/12/2030", "14:00")
+        with self.assertRaises(ErroValidacao):  # RN04
+            profissionais.excluir(id_com)
+        self.assertEqual(len(profissionais.listar()), 1)
+
+
+class TestConsultas(unittest.TestCase):
+    def setUp(self):
+        self._pasta = tempfile.TemporaryDirectory()
+        database.DB_PATH = Path(self._pasta.name) / "teste_cons.db"
+        database.criar_tabelas()
+        self.id_paciente = pacientes.cadastrar("Paciente Teste", CPF_OK, "01/01/1990")
+        self.id_prof = profissionais.cadastrar("Dra. Beatriz", "CRM 123", "Cardiologia")
+
+    def tearDown(self):
+        self._pasta.cleanup()
+
+    def test_agendar_e_listar(self):
+        id_c = consultas.agendar(
+            self.id_paciente, self.id_prof, "20/12/2030", "10:00", observacoes="Primeira consulta"
+        )
+        lista = consultas.listar()
+        self.assertEqual(len(lista), 1)
+        self.assertEqual(lista[0]["id"], id_c)
+        self.assertEqual(lista[0]["paciente_nome"], "Paciente Teste")
+        self.assertEqual(lista[0]["profissional_nome"], "Dra. Beatriz")
+        self.assertEqual(lista[0]["hora_inicio"], "10:00")
+        self.assertEqual(lista[0]["hora_fim"], "10:30")
+        self.assertEqual(lista[0]["situacao"], "Agendada")
+
+    def test_conflito_horario_mesmo_profissional(self):
+        consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        id_outro = pacientes.cadastrar("Outro Paciente", CPF_OK_2, "02/02/1995")
+        with self.assertRaises(ErroValidacao):  # RN01
+            consultas.agendar(id_outro, self.id_prof, "20/12/2030", "10:00")
+
+    def test_consulta_cancelada_libera_horario(self):
+        id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        consultas.cancelar(id_c, "Paciente solicitou cancelamento")
+        id_outro = pacientes.cadastrar("Outro Paciente", CPF_OK_2, "02/02/1995")
+        # RN01: Consultas com situação 'Cancelada' não bloqueiam o horário
+        id_novo = consultas.agendar(id_outro, self.id_prof, "20/12/2030", "10:00")
+        self.assertIsNotNone(id_novo)
+
+    def test_data_passada_bloqueada(self):
+        with self.assertRaises(ErroValidacao):  # RN05
+            consultas.agendar(self.id_paciente, self.id_prof, "01/01/2020", "10:00")
+
+    def test_remarcar_alterar(self):
+        id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        consultas.alterar_dados(id_c, self.id_paciente, self.id_prof, "21/12/2030", "15:00", "Remarcado")
+        obtida = consultas.obter(id_c)
+        self.assertEqual(obtida["data"], "2030-12-21")
+        self.assertEqual(obtida["hora_inicio"], "15:00")
+        self.assertEqual(obtida["observacoes"], "Remarcado")
+
+    def test_cancelar_consulta(self):
+        id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        consultas.cancelar(id_c, "Imprevisto")
+        obtida = consultas.obter(id_c)
+        self.assertEqual(obtida["situacao"], "Cancelada")  # RN07
+        self.assertEqual(obtida["motivo_cancelamento"], "Imprevisto")
+
+    def test_marcar_realizada(self):
+        id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        consultas.marcar_realizada(id_c)
+        obtida = consultas.obter(id_c)
+        self.assertEqual(obtida["situacao"], "Realizada")  # RF09
+
+    def test_medico_inativo_nao_agenda(self):
+        profissionais.alternar_ativo(self.id_prof)
+        with self.assertRaises(ErroValidacao):
+            consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
 
 
 if __name__ == "__main__":

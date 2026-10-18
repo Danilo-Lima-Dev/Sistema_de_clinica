@@ -9,15 +9,17 @@ import tkinter as tk
 import customtkinter as ctk
 
 from ui import tema
+from ui.tela_consultas import TelaConsultas
 from ui.tela_login import TelaLogin
 from ui.tela_pacientes import TelaPacientes
-from ui.telas_prototipo import TelaConsultas, TelaProfissionais
+from ui.tela_profissionais import TelaProfissionais
 
 
 class App(ctk.CTk):
     # Telas do sistema, na ordem em que aparecem no menu.
     # Cada tela tem o atributo NOME_MENU com o texto do cartão.
     TELAS = (TelaPacientes, TelaProfissionais, TelaConsultas)
+
 
     def __init__(self):
         tema.aplicar_tema()
@@ -172,8 +174,15 @@ class App(ctk.CTk):
         for classe, tela in self.telas.items():
             if classe is classe_escolhida:
                 tela.grid(row=0, column=0, sticky="nsew", padx=28, pady=24)
+                if hasattr(tela, "recarregar_especialidades"):
+                    tela.recarregar_especialidades()
+                if hasattr(tela, "recarregar_opcoes"):
+                    tela.recarregar_opcoes()
+                if hasattr(tela, "atualizar_lista"):
+                    tela.atualizar_lista()
             else:
                 tela.grid_remove()
+
         for classe, cartao in self.cartoes.items():
             if classe is classe_escolhida:  # cartão da tela atual: destacado
                 cartao.configure(

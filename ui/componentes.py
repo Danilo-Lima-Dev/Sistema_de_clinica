@@ -73,6 +73,32 @@ def campo_texto(master, rotulo, variavel=None, dica="", estado="normal"):
     return bloco, entrada
 
 
+def campo_combobox(master, rotulo, valores=None, variavel=None, comando=None, dica=""):
+    """Campo de seleção (ComboBox): rótulo + dica pequena + caixa suspensa."""
+    bloco = ctk.CTkFrame(master, fg_color="transparent")
+    linha = ctk.CTkFrame(bloco, fg_color="transparent")
+    linha.pack(fill="x")
+    ctk.CTkLabel(
+        linha, text=rotulo, font=tema.fonte(12, True),
+        text_color=tema.COR_TEXTO, anchor="w",
+    ).pack(side="left")
+    if dica:
+        ctk.CTkLabel(
+            linha, text=dica, font=tema.fonte(11),
+            text_color=tema.COR_TEXTO_SUAVE, anchor="e",
+        ).pack(side="right")
+    combo = ctk.CTkComboBox(
+        bloco, values=valores or [""], variable=variavel, command=comando,
+        height=38, corner_radius=tema.RAIO_BOTAO, border_color=tema.COR_BORDA,
+        fg_color=tema.COR_CARTAO, text_color=tema.COR_TEXTO,
+        button_color=tema.COR_BORDA, font=tema.fonte(13),
+        dropdown_font=tema.fonte(13),
+    )
+    combo.pack(fill="x", pady=(4, 0))
+    return bloco, combo
+
+
+
 def botao(master, texto, comando=None, estilo="primario", largura=140, altura=38, **extra):
     """Botão do tema. estilo: "primario" (cheio), "secundario" (contorno) ou "perigo" (vermelho)."""
     if estilo == "perigo":
