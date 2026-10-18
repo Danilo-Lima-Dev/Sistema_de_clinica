@@ -1,17 +1,19 @@
 # Sistema de Clínica
 
 Trabalho prático de Desenvolvimento Rápido de Aplicações em Python.
-Aplicação desktop (CustomTkinter) com banco de dados SQLite.
+Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
 
 ## Estado atual
 
 | Tela | Situação |
 | --- | --- |
+| Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o usuário `admin` na primeira execução |
 | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
 | Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
 | Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada e cancelar |
 
-O banco já é criado com as 4 tabelas do modelo (`especialidade`, `paciente`, `profissional`, `consulta`).
+O banco é criado com as 5 tabelas do modelo (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`)
+e já vem com as especialidades iniciais: Clínica Geral, Pediatria, Cardiologia, Dermatologia e Ortopedia.
 
 ## Requisitos
 
@@ -31,12 +33,27 @@ python main.py
 ```
 
 Na primeira execução o arquivo `clinica.db` é criado automaticamente na pasta do projeto,
-junto com o usuário padrão do login: **usuário `admin`, senha `admin123`** (troque depois).
+junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
+
+> O repositório já inclui um `clinica.db` com alguns registros de exemplo.
+> Para começar do zero, feche o programa e apague o arquivo `clinica.db`: ele é recriado
+> vazio (só com o `admin` e as especialidades iniciais) na próxima execução.
+
+## Login e usuários
+
+- O login não diferencia maiúsculas de minúsculas; a senha deve ter pelo menos 6 caracteres.
+- Depois de 5 tentativas erradas na tela de login, o programa fecha.
+- Ainda não existe tela para cadastrar usuários nem função para trocar a senha de um usuário já criado.
+  Para cadastrar outro usuário, rode na pasta do projeto (trocando nome, login e senha):
+
+```bash
+python -c "import database; from services import autenticacao; database.criar_tabelas(); autenticacao.cadastrar_usuario('Maria Souza', 'maria', 'senha123')"
+```
 
 ## Personalizar a aparência
 
-Nome do programa, cores, fontes e modo claro/escuro ficam todos em `ui/tema.py`.
-Para começar do zero, feche o programa e apague o arquivo `clinica.db`.
+Nome do programa, frase de apresentação, cores, fonte e modo claro/escuro ficam todos em `ui/tema.py`.
+No menu lateral do sistema há também uma chave para alternar entre o modo claro e o escuro.
 
 ## Como testar
 
@@ -48,13 +65,14 @@ python -m unittest discover -s tests -v
 
 | Arquivo | Função |
 | --- | --- |
-| `main.py` | Ponto de entrada: cria o banco (se não existir) e abre a janela. |
-| `database.py` | Conexão com o SQLite e criação das 4 tabelas (`especialidade`, `paciente`, `profissional`, `consulta`). |
-| `clinica.db` | Banco de dados, criado automaticamente na primeira execução. |
+| `main.py` | Ponto de entrada: cria o banco (se não existir), cria o usuário padrão e abre a janela no login. |
+| `requirements.txt` | Bibliotecas externas necessárias (CustomTkinter). |
+| `database.py` | Conexão com o SQLite e criação das 5 tabelas (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`). |
+| `clinica.db` | Banco de dados, criado automaticamente na primeira execução (o repositório traz um com dados de exemplo). |
 | `services/validacoes.py` | Funções de apoio: validação e formatação de CPF, datas, horários, telefone e e-mail. |
 | `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
 | `services/profissionais.py` | Regras de negócio e SQL dos profissionais (cadastrar, listar, buscar, alterar, inativar, excluir). |
-| `services/consultas.py` | Regras de negócio e SQL dos agendamentos (agendar, remarcar, cancelar, registrar realização, prevenção de conflito). |
+| `services/consultas.py` | Regras de negócio e SQL dos agendamentos (agendar, alterar/remarcar, cancelar, registrar realização, prevenção de conflito). |
 | `services/autenticacao.py` | Login: usuários, senha com hash (PBKDF2) e conferência. |
 | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
 | `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
@@ -63,9 +81,11 @@ python -m unittest discover -s tests -v
 | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
 | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |
 | `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação e cancelamento. |
+| `ui/telas_prototipo.py` | Protótipos antigos de Profissionais e Consultas. Não são mais usados pelo sistema (as telas reais estão em `tela_profissionais.py` e `tela_consultas.py`). |
+| `cli/` | Versão antiga em terminal (só pacientes). Não é chamada pelo `main.py` e não passa pelo login. Ver "Versão em terminal". |
 | `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
-| `__init__.py` (em `services/` e `ui/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
-
+| `DOCUMENTOS/Relatorio_Sistema_Clinica_Equipe.docx` | Relatório do sistema produzido pela equipe. |
+| `__init__.py` (em `services/`, `ui/` e `cli/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
 
 ## Organização em camadas
 
@@ -81,10 +101,31 @@ Essa separação permite alterar o visual sem quebrar as regras (e o contrário)
 
 ## Regras já aplicadas
 
+Os códigos entre parênteses são os citados nos comentários de cada arquivo em `services/`.
+
+**Pacientes**
+
 - Nome, CPF e data de nascimento obrigatórios (RN01).
 - CPF digitado só com números (11 dígitos) e único (RN02).
 - Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN03).
 - Paciente com consultas vinculadas não pode ser excluído (RN12).
+
+**Profissionais**
+
+- Nome, registro profissional (CRM, CREFITO etc.) e especialidade obrigatórios (RN02).
+- Registro profissional único no sistema (RN06).
+- Telefone, quando informado, com DDD (10 ou 11 dígitos).
+- Profissional com consultas vinculadas não pode ser excluído; nesse caso use "Inativar" para impedir novos agendamentos sem perder o histórico (RN04).
+
+**Consultas**
+
+- Paciente, profissional, data e horário obrigatórios; o horário vai no formato HH:MM (RN02).
+- Não é possível agendar com profissional inativo.
+- Não é possível agendar em data e hora que já passaram (RN05).
+- O mesmo profissional não pode ter duas consultas ativas no mesmo dia e horário de início; consultas canceladas não bloqueiam o horário (RN01).
+- Cada consulta tem duração fixa de 30 minutos: o horário de término é calculado automaticamente.
+- Consultas canceladas ou já realizadas não podem ser alteradas. Uma consulta realizada não pode ser cancelada, e uma cancelada não pode ser marcada como realizada.
+- Consultas não são excluídas, e sim canceladas (com motivo opcional), para manter o histórico (RN07).
 
 ## Modo de teste do CPF
 
@@ -96,3 +137,13 @@ VALIDAR_CPF = True
 ```
 
 Os dados de teste devem ser sempre fictícios.
+
+## Versão em terminal
+
+A pasta `cli/` guarda uma versão antiga do sistema para o terminal, só com o cadastro de pacientes
+(Profissionais e Consultas aparecem como "em desenvolvimento"). Ela usa as mesmas regras e o mesmo banco,
+mas não passa pela tela de login. Para abri-la, na pasta do projeto:
+
+```bash
+python -c "from cli.app import executar; executar()"
+```
