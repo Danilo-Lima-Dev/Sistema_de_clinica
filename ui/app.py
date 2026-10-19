@@ -4,7 +4,10 @@ Existe uma única janela. Ela mostra primeiro a tela de login e, depois do
 login, troca o conteúdo pelo sistema: menu lateral com "cartões" à esquerda e
 a tela escolhida à direita.
 """
+import sys
 import tkinter as tk
+import traceback
+from tkinter import messagebox
 
 import customtkinter as ctk
 
@@ -32,6 +35,20 @@ class App(ctk.CTk):
         self.telas = {}          # classe da tela -> tela já criada
         self.cartoes = {}        # classe da tela -> botão (cartão) do menu
         self._mostrar_login()
+
+    def report_callback_exception(self, tipo, valor, rastro):
+        """Chamada pelo Tk quando um botão ou evento dá um erro não previsto.
+
+        Sem isso o erro só apareceria no terminal e o usuário não saberia o que
+        houve. Aqui o programa continua aberto e mostra uma mensagem clara.
+        """
+        traceback.print_exception(tipo, valor, rastro, file=sys.stderr)  # detalhes no terminal
+        messagebox.showerror(
+            "Erro inesperado",
+            "Ocorreu um erro inesperado e a operação não foi concluída.\n"
+            "O sistema continua aberto; tente novamente.\n\n"
+            f"Detalhe: {valor}",
+        )
 
     # ----------------------------------------------------- troca de telas
     def _novo_container(self):

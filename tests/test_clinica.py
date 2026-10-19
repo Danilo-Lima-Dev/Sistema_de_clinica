@@ -1,4 +1,5 @@
 """Testes automáticos. Execute com:  python -m unittest discover -s tests -v"""
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -139,7 +140,7 @@ class TestPacientes(unittest.TestCase):
                 "VALUES (?, 1, '2030-01-01', '09:00', '09:30')",
                 (com_consulta,),
             )
-        with self.assertRaises(ErroValidacao):  # RN12
+        with self.assertRaises(ErroValidacao):  # RN04
             pacientes.excluir(com_consulta)
         self.assertEqual(len(pacientes.listar()), 1)
 
@@ -196,6 +197,23 @@ class TestBanco(unittest.TestCase):
             with database.transacao() as con:
                 total = con.execute("SELECT COUNT(*) FROM especialidade").fetchone()[0]
             self.assertEqual(total, len(database.ESPECIALIDADES_INICIAIS))  # sem duplicar
+
+    def test_persistencia_de_todas_as_entidades(self):
+        """Etapa 3: o que foi cadastrado continua lá depois de fechar e abrir de novo."""
+        with tempfile.TemporaryDirectory() as pasta:
+            database.DB_PATH = Path(pasta) / "persist_todas.db"
+            database.criar_tabelas()
+            id_pac = pacientes.cadastrar("Ana", CPF_OK, "25/03/1990")
+            id_prof = profissionais.cadastrar("Dr. Caio", "CRM 777", "Pediatria")
+            consultas.agendar(id_pac, id_prof, "20/12/2030", "09:00")
+
+            database.criar_tabelas()  # simula fechar e abrir o sistema
+            self.assertEqual(len(pacientes.listar()), 1)
+            self.assertEqual(len(profissionais.listar()), 1)
+            lista = consultas.listar()
+            self.assertEqual(len(lista), 1)  # o relacionamento paciente x profissional também persiste
+            self.assertEqual(lista[0]["paciente_nome"], "Ana")
+            self.assertEqual(lista[0]["profissional_nome"], "Dr. Caio")
 
 
 class TestProfissionais(unittest.TestCase):
@@ -333,6 +351,40 @@ class TestConsultas(unittest.TestCase):
         profissionais.alternar_ativo(self.id_prof)
         with self.assertRaises(ErroValidacao):
             consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+
+    def test_indice_unico_garante_conflito_no_banco(self):
+        """RN01 também no banco: nem um INSERT direto consegue duplicar o horário."""
+        consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        sql = (
+            "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, hora_fim, situacao) "
+            "VALUES (?, ?, '2030-12-20', '10:00', '10:30', ?)"
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            with database.transacao() as con:
+                con.execute(sql, (self.id_paciente, self.id_prof, "Agendada"))
+        with database.transacao() as con:  # consulta cancelada não bloqueia
+            con.execute(sql, (self.id_paciente, self.id_prof, "Cancelada"))
+
+    def test_banco_antigo_com_conflito_ainda_abre(self):
+        """Se um banco antigo já tem horários duplicados, o sistema abre mesmo assim."""
+        with database.transacao() as con:
+            con.execute("DROP INDEX ux_consulta_profissional_horario")
+            for _ in range(2):
+                con.execute(
+                    "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, hora_fim) "
+                    "VALUES (?, ?, '2030-12-20', '10:00', '10:30')",
+                    (self.id_paciente, self.id_prof),
+                )
+        database.criar_tabelas()  # não pode levantar erro
+        self.assertEqual(len(consultas.listar()), 2)
+
+    def test_busca_por_data(self):
+        """RF06: digitar uma data DD/MM/AAAA na busca encontra as consultas daquele dia."""
+        consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+        consultas.agendar(self.id_paciente, self.id_prof, "21/12/2030", "10:00")
+        self.assertEqual(len(consultas.listar(busca="20/12/2030")), 1)
+        self.assertEqual(len(consultas.listar(busca="22/12/2030")), 0)
+        self.assertEqual(len(consultas.listar(busca="Beatriz")), 2)  # busca por nome continua valendo
 
 
 if __name__ == "__main__":

@@ -1,0 +1,482 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..ececcee
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,3 @@
++# Arquivos gerados pelo Python (não precisam ir para o repositório)
++__pycache__/
++*.pyc
+diff --git a/README.md b/README.md
+index 90e18fa..6b0570e 100644
+--- a/README.md
++++ b/README.md
+@@ -101,14 +101,14 @@ Essa separação permite alterar o visual sem quebrar as regras (e o contrário)
+ 
+ ## Regras já aplicadas
+ 
+-Os códigos entre parênteses são os citados nos comentários de cada arquivo em `services/`.
++Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seção 3.
+ 
+ **Pacientes**
+ 
+-- Nome, CPF e data de nascimento obrigatórios (RN01).
+-- CPF digitado só com números (11 dígitos) e único (RN02).
+-- Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN03).
+-- Paciente com consultas vinculadas não pode ser excluído (RN12).
++- Nome, CPF e data de nascimento obrigatórios (RN02).
++- CPF digitado só com números (11 dígitos) e único no sistema (RN02 e RN06).
++- Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN05).
++- Paciente com consultas vinculadas não pode ser excluído (RN04).
+ 
+ **Profissionais**
+ 
+diff --git a/database.py b/database.py
+index 9edcd25..0d7d578 100644
+--- a/database.py
++++ b/database.py
+@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS consulta (
+ """
+ 
+ 
++# RN01 também garantida pelo banco: o mesmo profissional não pode ter duas
++# consultas NÃO canceladas no mesmo dia e horário de início. Consultas
++# canceladas ficam de fora do índice, então liberam o horário.
++INDICE_CONFLITO_HORARIO = """
++CREATE UNIQUE INDEX IF NOT EXISTS ux_consulta_profissional_horario
++ON consulta (profissional_id, data, hora_inicio)
++WHERE situacao != 'Cancelada'
++"""
++
++
+ def conectar():
+     """Abre uma conexão com chaves estrangeiras ativadas."""
+     con = sqlite3.connect(DB_PATH)
+@@ -100,3 +110,11 @@ def criar_tabelas():
+             "INSERT OR IGNORE INTO especialidade (nome) VALUES (?)",
+             [(nome,) for nome in ESPECIALIDADES_INICIAIS],
+         )
++    # O índice fica em uma transação à parte: se um banco antigo já tiver dois
++    # agendamentos conflitantes, o índice não é criado, mas o sistema abre normalmente
++    # (a regra RN01 continua valendo pela verificação em services/consultas.py).
++    try:
++        with transacao() as con:
++            con.execute(INDICE_CONFLITO_HORARIO)
++    except sqlite3.IntegrityError:
++        pass
+diff --git a/services/consultas.py b/services/consultas.py
+index a1b0bd2..0a54962 100644
+--- a/services/consultas.py
++++ b/services/consultas.py
+@@ -68,9 +68,7 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
+ 
+     total_conflitos = con.execute(sql_conflito, parametros).fetchone()[0]
+     if total_conflitos > 0:
+-        raise ErroValidacao(
+-            "O profissional já possui uma consulta ativa agendada neste mesmo dia e horário."
+-        )
++        raise ErroValidacao(MSG_CONFLITO)
+ 
+     return {
+         "paciente_id": paciente_id,
+@@ -82,48 +80,70 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
+     }
+ 
+ 
++MSG_CONFLITO = "O profissional já possui uma consulta ativa agendada neste mesmo dia e horário."
++
++
++def _erro_de_conflito(erro):
++    """Se o banco recusou por causa do índice único de horário (RN01), devolve a mensagem amigável."""
++    if "UNIQUE" in str(erro).upper():
++        return ErroValidacao(MSG_CONFLITO)
++    return None
++
++
+ def agendar(paciente_id, profissional_id, data_br, hora_inicio, observacoes="", validar_futuro=True):
+     """Realiza o agendamento de uma nova consulta (RF05)."""
+-    with database.transacao() as con:
+-        dados = _validar(
+-            con, paciente_id, profissional_id, data_br, hora_inicio,
+-            observacoes=observacoes, validar_futuro=validar_futuro,
+-        )
+-        dados["situacao"] = "Agendada"
+-        cursor = con.execute(
+-            "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, "
+-            "hora_fim, situacao, observacoes) "
+-            "VALUES (:paciente_id, :profissional_id, :data, :hora_inicio, "
+-            ":hora_fim, :situacao, :observacoes)",
+-            dados,
+-        )
+-        return cursor.lastrowid
++    try:
++        with database.transacao() as con:
++            dados = _validar(
++                con, paciente_id, profissional_id, data_br, hora_inicio,
++                observacoes=observacoes, validar_futuro=validar_futuro,
++            )
++            dados["situacao"] = "Agendada"
++            cursor = con.execute(
++                "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, "
++                "hora_fim, situacao, observacoes) "
++                "VALUES (:paciente_id, :profissional_id, :data, :hora_inicio, "
++                ":hora_fim, :situacao, :observacoes)",
++                dados,
++            )
++            return cursor.lastrowid
++    except sqlite3.IntegrityError as erro:
++        amigavel = _erro_de_conflito(erro)
++        if amigavel:
++            raise amigavel from None
++        raise
+ 
+ 
+ def alterar_dados(id_consulta, paciente_id, profissional_id, data_br, hora_inicio,
+                   observacoes="", validar_futuro=True):
+     """Altera dados de uma consulta agendada (remarcar, trocar paciente ou médico) (RF07)."""
+-    with database.transacao() as con:
+-        atual = con.execute("SELECT situacao FROM consulta WHERE id = ?", (id_consulta,)).fetchone()
+-        if not atual:
+-            raise ErroValidacao("Consulta não encontrada. Atualize a lista e tente de novo.")
+-        if atual["situacao"] == "Cancelada":
+-            raise ErroValidacao("Consultas canceladas não podem ser alteradas. Faça um novo agendamento.")
+-        if atual["situacao"] == "Realizada":
+-            raise ErroValidacao("Consultas já realizadas não podem ser alteradas.")
+-
+-        dados = _validar(
+-            con, paciente_id, profissional_id, data_br, hora_inicio,
+-            observacoes=observacoes, ignorar_id_consulta=id_consulta,
+-            validar_futuro=validar_futuro,
+-        )
+-        dados["id"] = id_consulta
+-        con.execute(
+-            "UPDATE consulta SET paciente_id = :paciente_id, profissional_id = :profissional_id, "
+-            "data = :data, hora_inicio = :hora_inicio, hora_fim = :hora_fim, observacoes = :observacoes "
+-            "WHERE id = :id",
+-            dados,
+-        )
++    try:
++        with database.transacao() as con:
++            atual = con.execute("SELECT situacao FROM consulta WHERE id = ?", (id_consulta,)).fetchone()
++            if not atual:
++                raise ErroValidacao("Consulta não encontrada. Atualize a lista e tente de novo.")
++            if atual["situacao"] == "Cancelada":
++                raise ErroValidacao("Consultas canceladas não podem ser alteradas. Faça um novo agendamento.")
++            if atual["situacao"] == "Realizada":
++                raise ErroValidacao("Consultas já realizadas não podem ser alteradas.")
++
++            dados = _validar(
++                con, paciente_id, profissional_id, data_br, hora_inicio,
++                observacoes=observacoes, ignorar_id_consulta=id_consulta,
++                validar_futuro=validar_futuro,
++            )
++            dados["id"] = id_consulta
++            con.execute(
++                "UPDATE consulta SET paciente_id = :paciente_id, profissional_id = :profissional_id, "
++                "data = :data, hora_inicio = :hora_inicio, hora_fim = :hora_fim, observacoes = :observacoes "
++                "WHERE id = :id",
++                dados,
++            )
++    except sqlite3.IntegrityError as erro:
++        amigavel = _erro_de_conflito(erro)
++        if amigavel:
++            raise amigavel from None
++        raise
+ 
+ 
+ def cancelar(id_consulta, motivo_cancelamento=""):
+@@ -179,10 +199,17 @@ def listar(busca="", situacao=None, data_iso=None, profissional_id=None, pacient
+     parametros = []
+ 
+     if busca:
+-        filtros.append(
+-            "(p.nome LIKE ? OR pr.nome LIKE ? OR e.nome LIKE ? OR c.observacoes LIKE ?)"
+-        )
+-        parametros.extend([f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca}%"])
++        # RF06: a busca vale para paciente, profissional, especialidade e observações...
++        condicoes = ["p.nome LIKE ?", "pr.nome LIKE ?", "e.nome LIKE ?", "c.observacoes LIKE ?"]
++        valores = [f"%{busca}%"] * 4
++        # ...e também para a data, quando o texto digitado for uma data DD/MM/AAAA válida.
++        try:
++            condicoes.append("c.data = ?")
++            valores.append(data_br_para_date(busca).isoformat())
++        except ErroValidacao:
++            condicoes.pop()  # não era uma data: busca só pelos textos
++        filtros.append("(" + " OR ".join(condicoes) + ")")
++        parametros.extend(valores)
+ 
+     if situacao and situacao != "Todas":
+         filtros.append("c.situacao = ?")
+diff --git a/services/pacientes.py b/services/pacientes.py
+index b3dfdbb..87bfacf 100644
+--- a/services/pacientes.py
++++ b/services/pacientes.py
+@@ -1,10 +1,10 @@
+ """Regras de negócio e acesso ao banco para o cadastro de pacientes.
+ 
+-Regras aplicadas (ver documento da Etapa 1):
+-  RN01  nome, CPF e data de nascimento são obrigatórios
+-  RN02  CPF válido e único (digitado só com números)
+-  RN03  data de nascimento não pode ser futura
+-  RN12  paciente com consultas vinculadas não pode ser excluído
++Regras aplicadas (numeração igual à do relatório, seção 3):
++  RN02  nome, CPF (11 números) e data de nascimento são obrigatórios e validados
++  RN04  paciente com consultas vinculadas não pode ser excluído
++  RN05  data de nascimento em formato válido e não pode ser futura
++  RN06  o CPF não pode se repetir no sistema
+ """
+ import sqlite3
+ from datetime import date
+@@ -96,7 +96,7 @@ def atualizar(id_paciente, nome, cpf, nascimento, telefone="", email=""):
+ 
+ 
+ def excluir(id_paciente):
+-    """Exclui um paciente, se ele não tiver consultas vinculadas (RN12)."""
++    """Exclui um paciente, se ele não tiver consultas vinculadas (RN04)."""
+     with database.transacao() as con:
+         total = con.execute(
+             "SELECT COUNT(*) FROM consulta WHERE paciente_id = ?", (id_paciente,)
+diff --git a/tests/test_clinica.py b/tests/test_clinica.py
+index 8db108e..94432c9 100644
+--- a/tests/test_clinica.py
++++ b/tests/test_clinica.py
+@@ -1,4 +1,5 @@
+ """Testes automáticos. Execute com:  python -m unittest discover -s tests -v"""
++import sqlite3
+ import sys
+ import tempfile
+ import unittest
+@@ -139,7 +140,7 @@ class TestPacientes(unittest.TestCase):
+                 "VALUES (?, 1, '2030-01-01', '09:00', '09:30')",
+                 (com_consulta,),
+             )
+-        with self.assertRaises(ErroValidacao):  # RN12
++        with self.assertRaises(ErroValidacao):  # RN04
+             pacientes.excluir(com_consulta)
+         self.assertEqual(len(pacientes.listar()), 1)
+ 
+@@ -197,6 +198,23 @@ class TestBanco(unittest.TestCase):
+                 total = con.execute("SELECT COUNT(*) FROM especialidade").fetchone()[0]
+             self.assertEqual(total, len(database.ESPECIALIDADES_INICIAIS))  # sem duplicar
+ 
++    def test_persistencia_de_todas_as_entidades(self):
++        """Etapa 3: o que foi cadastrado continua lá depois de fechar e abrir de novo."""
++        with tempfile.TemporaryDirectory() as pasta:
++            database.DB_PATH = Path(pasta) / "persist_todas.db"
++            database.criar_tabelas()
++            id_pac = pacientes.cadastrar("Ana", CPF_OK, "25/03/1990")
++            id_prof = profissionais.cadastrar("Dr. Caio", "CRM 777", "Pediatria")
++            consultas.agendar(id_pac, id_prof, "20/12/2030", "09:00")
++
++            database.criar_tabelas()  # simula fechar e abrir o sistema
++            self.assertEqual(len(pacientes.listar()), 1)
++            self.assertEqual(len(profissionais.listar()), 1)
++            lista = consultas.listar()
++            self.assertEqual(len(lista), 1)  # o relacionamento paciente x profissional também persiste
++            self.assertEqual(lista[0]["paciente_nome"], "Ana")
++            self.assertEqual(lista[0]["profissional_nome"], "Dr. Caio")
++
+ 
+ class TestProfissionais(unittest.TestCase):
+     def setUp(self):
+@@ -334,6 +352,40 @@ class TestConsultas(unittest.TestCase):
+         with self.assertRaises(ErroValidacao):
+             consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
+ 
++    def test_indice_unico_garante_conflito_no_banco(self):
++        """RN01 também no banco: nem um INSERT direto consegue duplicar o horário."""
++        consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
++        sql = (
++            "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, hora_fim, situacao) "
++            "VALUES (?, ?, '2030-12-20', '10:00', '10:30', ?)"
++        )
++        with self.assertRaises(sqlite3.IntegrityError):
++            with database.transacao() as con:
++                con.execute(sql, (self.id_paciente, self.id_prof, "Agendada"))
++        with database.transacao() as con:  # consulta cancelada não bloqueia
++            con.execute(sql, (self.id_paciente, self.id_prof, "Cancelada"))
++
++    def test_banco_antigo_com_conflito_ainda_abre(self):
++        """Se um banco antigo já tem horários duplicados, o sistema abre mesmo assim."""
++        with database.transacao() as con:
++            con.execute("DROP INDEX ux_consulta_profissional_horario")
++            for _ in range(2):
++                con.execute(
++                    "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, hora_fim) "
++                    "VALUES (?, ?, '2030-12-20', '10:00', '10:30')",
++                    (self.id_paciente, self.id_prof),
++                )
++        database.criar_tabelas()  # não pode levantar erro
++        self.assertEqual(len(consultas.listar()), 2)
++
++    def test_busca_por_data(self):
++        """RF06: digitar uma data DD/MM/AAAA na busca encontra as consultas daquele dia."""
++        consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
++        consultas.agendar(self.id_paciente, self.id_prof, "21/12/2030", "10:00")
++        self.assertEqual(len(consultas.listar(busca="20/12/2030")), 1)
++        self.assertEqual(len(consultas.listar(busca="22/12/2030")), 0)
++        self.assertEqual(len(consultas.listar(busca="Beatriz")), 2)  # busca por nome continua valendo
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+\ No newline at end of file
+diff --git a/ui/app.py b/ui/app.py
+index 69ba1b7..034c38f 100644
+--- a/ui/app.py
++++ b/ui/app.py
+@@ -4,7 +4,10 @@ Existe uma única janela. Ela mostra primeiro a tela de login e, depois do
+ login, troca o conteúdo pelo sistema: menu lateral com "cartões" à esquerda e
+ a tela escolhida à direita.
+ """
++import sys
+ import tkinter as tk
++import traceback
++from tkinter import messagebox
+ 
+ import customtkinter as ctk
+ 
+@@ -33,6 +36,20 @@ class App(ctk.CTk):
+         self.cartoes = {}        # classe da tela -> botão (cartão) do menu
+         self._mostrar_login()
+ 
++    def report_callback_exception(self, tipo, valor, rastro):
++        """Chamada pelo Tk quando um botão ou evento dá um erro não previsto.
++
++        Sem isso o erro só apareceria no terminal e o usuário não saberia o que
++        houve. Aqui o programa continua aberto e mostra uma mensagem clara.
++        """
++        traceback.print_exception(tipo, valor, rastro, file=sys.stderr)  # detalhes no terminal
++        messagebox.showerror(
++            "Erro inesperado",
++            "Ocorreu um erro inesperado e a operação não foi concluída.\n"
++            "O sistema continua aberto; tente novamente.\n\n"
++            f"Detalhe: {valor}",
++        )
++
+     # ----------------------------------------------------- troca de telas
+     def _novo_container(self):
+         """Apaga o que está na janela e devolve um quadro limpo para montar a próxima tela."""
+diff --git a/ui/componentes.py b/ui/componentes.py
+index d6fb840..f2e6ccf 100644
+--- a/ui/componentes.py
++++ b/ui/componentes.py
+@@ -140,7 +140,7 @@ def criar_tabela(master, colunas, altura=8):
+     )
+     for chave, titulo, largura in colunas:
+         tabela.heading(chave, text=titulo, anchor="w")
+-        tabela.column(chave, width=largura, anchor="w")
++        tabela.column(chave, width=largura, minwidth=50, anchor="w")
+     barra = ctk.CTkScrollbar(quadro, command=tabela.yview)
+     tabela.configure(yscrollcommand=barra.set)
+     tabela.pack(side="left", fill="both", expand=True)
+diff --git a/ui/tela_consultas.py b/ui/tela_consultas.py
+index aaef25d..f74b223 100644
+--- a/ui/tela_consultas.py
++++ b/ui/tela_consultas.py
+@@ -34,7 +34,7 @@ def aplicar_mascara(variavel, funcao, entrada):
+ class TelaConsultas(ctk.CTkFrame):
+     NOME_MENU = "Consultas"
+     COLUNAS = (
+-        ("id", "ID", 45),
++        ("id", "ID", 50),
+         ("data", "Data", 90),
+         ("hora", "Horário", 70),
+         ("paciente", "Paciente", 200),
+@@ -164,7 +164,7 @@ class TelaConsultas(ctk.CTkFrame):
+         filtro.pack(side="left", padx=(0, 14))
+ 
+         ctk.CTkLabel(
+-            barra, text="Buscar:", font=tema.fonte(12, True),
++            barra, text="Buscar (nome ou data):", font=tema.fonte(12, True),
+             text_color=tema.COR_TEXTO,
+         ).pack(side="left", padx=(0, 6))
+ 
+@@ -223,10 +223,15 @@ class TelaConsultas(ctk.CTkFrame):
+                 values=opcoes_profissionais or ["Nenhum profissional cadastrado"]
+             )
+             if not self.var_profissional.get() and opcoes_profissionais:
+-                self.var_profissional.set(opcoes_profissionais[0])
++                # pré-seleciona o primeiro profissional ativo (inativos não podem ser agendados)
++                ativos = [t for t in opcoes_profissionais if not t.endswith("[Inativo]")]
++                self.var_profissional.set((ativos or opcoes_profissionais)[0])
+ 
+-        except Exception:
+-            pass
++        except sqlite3.Error as erro:
++            messagebox.showerror(
++                "Erro no banco de dados",
++                f"Não foi possível carregar pacientes e profissionais: {erro}",
++            )
+ 
+     def atualizar_lista(self):
+         """Recarrega a tabela de consultas a partir do banco de dados."""
+@@ -269,7 +274,11 @@ class TelaConsultas(ctk.CTkFrame):
+         if not selecionados:
+             return
+         self.id_selecionado = int(selecionados[0])
+-        dados = consultas.obter(self.id_selecionado)
++        try:
++            dados = consultas.obter(self.id_selecionado)
++        except sqlite3.Error as erro:
++            messagebox.showerror("Erro no banco de dados", f"Não foi possível abrir a consulta: {erro}")
++            return
+         if not dados:
+             return
+ 
+diff --git a/ui/tela_pacientes.py b/ui/tela_pacientes.py
+index 1bf89e7..a870db4 100644
+--- a/ui/tela_pacientes.py
++++ b/ui/tela_pacientes.py
+@@ -35,11 +35,11 @@ class TelaPacientes(ctk.CTkFrame):
+     NOME_MENU = "Pacientes"  # texto do cartão no menu lateral
+     COLUNAS = (
+         ("id", "ID", 50),
+-        ("nome", "Nome", 230),
+-        ("cpf", "CPF", 130),
+-        ("nascimento", "Nascimento", 110),
+-        ("telefone", "Telefone", 130),
+-        ("email", "E-mail", 220),
++        ("nome", "Nome", 165),
++        ("cpf", "CPF", 128),
++        ("nascimento", "Nascimento", 108),
++        ("telefone", "Telefone", 138),
++        ("email", "E-mail", 205),
+     )
+ 
+     def __init__(self, master):
+diff --git a/ui/tela_profissionais.py b/ui/tela_profissionais.py
+index c895809..26fff8e 100644
+--- a/ui/tela_profissionais.py
++++ b/ui/tela_profissionais.py
+@@ -28,11 +28,11 @@ class TelaProfissionais(ctk.CTkFrame):
+     NOME_MENU = "Profissionais"
+     COLUNAS = (
+         ("id", "ID", 50),
+-        ("nome", "Nome", 240),
+-        ("registro", "Registro (CRM)", 130),
+-        ("especialidade", "Especialidade", 170),
+-        ("telefone", "Telefone", 130),
+-        ("ativo", "Situação", 90),
++        ("nome", "Nome", 215),
++        ("registro", "Registro (CRM)", 135),
++        ("especialidade", "Especialidade", 150),
++        ("telefone", "Telefone", 150),
++        ("ativo", "Situação", 85),
+     )
+ 
+     def __init__(self, master):
+@@ -157,8 +157,11 @@ class TelaProfissionais(ctk.CTkFrame):
+             self.combo_especialidade.configure(values=nomes or ["Clínica Geral"])
+             if not self.var_especialidade.get() and nomes:
+                 self.var_especialidade.set(nomes[0])
+-        except Exception:
+-            pass
++        except sqlite3.Error as erro:
++            messagebox.showerror(
++                "Erro no banco de dados",
++                f"Não foi possível carregar as especialidades: {erro}",
++            )
+ 
+     def atualizar_lista(self):
+         """Recarrega a tabela a partir do banco de dados."""

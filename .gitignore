@@ -1,0 +1,3 @@
+# Arquivos gerados pelo Python (não precisam ir para o repositório)
+__pycache__/
+*.pyc

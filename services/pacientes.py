@@ -1,10 +1,10 @@
 """Regras de negócio e acesso ao banco para o cadastro de pacientes.
 
-Regras aplicadas (ver documento da Etapa 1):
-  RN01  nome, CPF e data de nascimento são obrigatórios
-  RN02  CPF válido e único (digitado só com números)
-  RN03  data de nascimento não pode ser futura
-  RN12  paciente com consultas vinculadas não pode ser excluído
+Regras aplicadas (numeração igual à do relatório, seção 3):
+  RN02  nome, CPF (11 números) e data de nascimento são obrigatórios e validados
+  RN04  paciente com consultas vinculadas não pode ser excluído
+  RN05  data de nascimento em formato válido e não pode ser futura
+  RN06  o CPF não pode se repetir no sistema
 """
 import sqlite3
 from datetime import date
@@ -96,7 +96,7 @@ def atualizar(id_paciente, nome, cpf, nascimento, telefone="", email=""):
 
 
 def excluir(id_paciente):
-    """Exclui um paciente, se ele não tiver consultas vinculadas (RN12)."""
+    """Exclui um paciente, se ele não tiver consultas vinculadas (RN04)."""
     with database.transacao() as con:
         total = con.execute(
             "SELECT COUNT(*) FROM consulta WHERE paciente_id = ?", (id_paciente,)

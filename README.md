@@ -101,14 +101,14 @@ Essa separação permite alterar o visual sem quebrar as regras (e o contrário)
 
 ## Regras já aplicadas
 
-Os códigos entre parênteses são os citados nos comentários de cada arquivo em `services/`.
+Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seção 3.
 
 **Pacientes**
 
-- Nome, CPF e data de nascimento obrigatórios (RN01).
-- CPF digitado só com números (11 dígitos) e único (RN02).
-- Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN03).
-- Paciente com consultas vinculadas não pode ser excluído (RN12).
+- Nome, CPF e data de nascimento obrigatórios (RN02).
+- CPF digitado só com números (11 dígitos) e único no sistema (RN02 e RN06).
+- Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN05).
+- Paciente com consultas vinculadas não pode ser excluído (RN04).
 
 **Profissionais**
 

@@ -34,7 +34,7 @@ def aplicar_mascara(variavel, funcao, entrada):
 class TelaConsultas(ctk.CTkFrame):
     NOME_MENU = "Consultas"
     COLUNAS = (
-        ("id", "ID", 45),
+        ("id", "ID", 50),
         ("data", "Data", 90),
         ("hora", "Horário", 70),
         ("paciente", "Paciente", 200),
@@ -164,7 +164,7 @@ class TelaConsultas(ctk.CTkFrame):
         filtro.pack(side="left", padx=(0, 14))
 
         ctk.CTkLabel(
-            barra, text="Buscar:", font=tema.fonte(12, True),
+            barra, text="Buscar (nome ou data):", font=tema.fonte(12, True),
             text_color=tema.COR_TEXTO,
         ).pack(side="left", padx=(0, 6))
 
@@ -223,10 +223,15 @@ class TelaConsultas(ctk.CTkFrame):
                 values=opcoes_profissionais or ["Nenhum profissional cadastrado"]
             )
             if not self.var_profissional.get() and opcoes_profissionais:
-                self.var_profissional.set(opcoes_profissionais[0])
+                # pré-seleciona o primeiro profissional ativo (inativos não podem ser agendados)
+                ativos = [t for t in opcoes_profissionais if not t.endswith("[Inativo]")]
+                self.var_profissional.set((ativos or opcoes_profissionais)[0])
 
-        except Exception:
-            pass
+        except sqlite3.Error as erro:
+            messagebox.showerror(
+                "Erro no banco de dados",
+                f"Não foi possível carregar pacientes e profissionais: {erro}",
+            )
 
     def atualizar_lista(self):
         """Recarrega a tabela de consultas a partir do banco de dados."""
@@ -269,7 +274,11 @@ class TelaConsultas(ctk.CTkFrame):
         if not selecionados:
             return
         self.id_selecionado = int(selecionados[0])
-        dados = consultas.obter(self.id_selecionado)
+        try:
+            dados = consultas.obter(self.id_selecionado)
+        except sqlite3.Error as erro:
+            messagebox.showerror("Erro no banco de dados", f"Não foi possível abrir a consulta: {erro}")
+            return
         if not dados:
             return
 

@@ -68,9 +68,7 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
 
     total_conflitos = con.execute(sql_conflito, parametros).fetchone()[0]
     if total_conflitos > 0:
-        raise ErroValidacao(
-            "O profissional já possui uma consulta ativa agendada neste mesmo dia e horário."
-        )
+        raise ErroValidacao(MSG_CONFLITO)
 
     return {
         "paciente_id": paciente_id,
@@ -82,48 +80,70 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
     }
 
 
+MSG_CONFLITO = "O profissional já possui uma consulta ativa agendada neste mesmo dia e horário."
+
+
+def _erro_de_conflito(erro):
+    """Se o banco recusou por causa do índice único de horário (RN01), devolve a mensagem amigável."""
+    if "UNIQUE" in str(erro).upper():
+        return ErroValidacao(MSG_CONFLITO)
+    return None
+
+
 def agendar(paciente_id, profissional_id, data_br, hora_inicio, observacoes="", validar_futuro=True):
     """Realiza o agendamento de uma nova consulta (RF05)."""
-    with database.transacao() as con:
-        dados = _validar(
-            con, paciente_id, profissional_id, data_br, hora_inicio,
-            observacoes=observacoes, validar_futuro=validar_futuro,
-        )
-        dados["situacao"] = "Agendada"
-        cursor = con.execute(
-            "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, "
-            "hora_fim, situacao, observacoes) "
-            "VALUES (:paciente_id, :profissional_id, :data, :hora_inicio, "
-            ":hora_fim, :situacao, :observacoes)",
-            dados,
-        )
-        return cursor.lastrowid
+    try:
+        with database.transacao() as con:
+            dados = _validar(
+                con, paciente_id, profissional_id, data_br, hora_inicio,
+                observacoes=observacoes, validar_futuro=validar_futuro,
+            )
+            dados["situacao"] = "Agendada"
+            cursor = con.execute(
+                "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, "
+                "hora_fim, situacao, observacoes) "
+                "VALUES (:paciente_id, :profissional_id, :data, :hora_inicio, "
+                ":hora_fim, :situacao, :observacoes)",
+                dados,
+            )
+            return cursor.lastrowid
+    except sqlite3.IntegrityError as erro:
+        amigavel = _erro_de_conflito(erro)
+        if amigavel:
+            raise amigavel from None
+        raise
 
 
 def alterar_dados(id_consulta, paciente_id, profissional_id, data_br, hora_inicio,
                   observacoes="", validar_futuro=True):
     """Altera dados de uma consulta agendada (remarcar, trocar paciente ou médico) (RF07)."""
-    with database.transacao() as con:
-        atual = con.execute("SELECT situacao FROM consulta WHERE id = ?", (id_consulta,)).fetchone()
-        if not atual:
-            raise ErroValidacao("Consulta não encontrada. Atualize a lista e tente de novo.")
-        if atual["situacao"] == "Cancelada":
-            raise ErroValidacao("Consultas canceladas não podem ser alteradas. Faça um novo agendamento.")
-        if atual["situacao"] == "Realizada":
-            raise ErroValidacao("Consultas já realizadas não podem ser alteradas.")
+    try:
+        with database.transacao() as con:
+            atual = con.execute("SELECT situacao FROM consulta WHERE id = ?", (id_consulta,)).fetchone()
+            if not atual:
+                raise ErroValidacao("Consulta não encontrada. Atualize a lista e tente de novo.")
+            if atual["situacao"] == "Cancelada":
+                raise ErroValidacao("Consultas canceladas não podem ser alteradas. Faça um novo agendamento.")
+            if atual["situacao"] == "Realizada":
+                raise ErroValidacao("Consultas já realizadas não podem ser alteradas.")
 
-        dados = _validar(
-            con, paciente_id, profissional_id, data_br, hora_inicio,
-            observacoes=observacoes, ignorar_id_consulta=id_consulta,
-            validar_futuro=validar_futuro,
-        )
-        dados["id"] = id_consulta
-        con.execute(
-            "UPDATE consulta SET paciente_id = :paciente_id, profissional_id = :profissional_id, "
-            "data = :data, hora_inicio = :hora_inicio, hora_fim = :hora_fim, observacoes = :observacoes "
-            "WHERE id = :id",
-            dados,
-        )
+            dados = _validar(
+                con, paciente_id, profissional_id, data_br, hora_inicio,
+                observacoes=observacoes, ignorar_id_consulta=id_consulta,
+                validar_futuro=validar_futuro,
+            )
+            dados["id"] = id_consulta
+            con.execute(
+                "UPDATE consulta SET paciente_id = :paciente_id, profissional_id = :profissional_id, "
+                "data = :data, hora_inicio = :hora_inicio, hora_fim = :hora_fim, observacoes = :observacoes "
+                "WHERE id = :id",
+                dados,
+            )
+    except sqlite3.IntegrityError as erro:
+        amigavel = _erro_de_conflito(erro)
+        if amigavel:
+            raise amigavel from None
+        raise
 
 
 def cancelar(id_consulta, motivo_cancelamento=""):
@@ -179,10 +199,17 @@ def listar(busca="", situacao=None, data_iso=None, profissional_id=None, pacient
     parametros = []
 
     if busca:
-        filtros.append(
-            "(p.nome LIKE ? OR pr.nome LIKE ? OR e.nome LIKE ? OR c.observacoes LIKE ?)"
-        )
-        parametros.extend([f"%{busca}%", f"%{busca}%", f"%{busca}%", f"%{busca}%"])
+        # RF06: a busca vale para paciente, profissional, especialidade e observações...
+        condicoes = ["p.nome LIKE ?", "pr.nome LIKE ?", "e.nome LIKE ?", "c.observacoes LIKE ?"]
+        valores = [f"%{busca}%"] * 4
+        # ...e também para a data, quando o texto digitado for uma data DD/MM/AAAA válida.
+        try:
+            condicoes.append("c.data = ?")
+            valores.append(data_br_para_date(busca).isoformat())
+        except ErroValidacao:
+            condicoes.pop()  # não era uma data: busca só pelos textos
+        filtros.append("(" + " OR ".join(condicoes) + ")")
+        parametros.extend(valores)
 
     if situacao and situacao != "Todas":
         filtros.append("c.situacao = ?")

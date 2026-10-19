@@ -35,11 +35,11 @@ class TelaPacientes(ctk.CTkFrame):
     NOME_MENU = "Pacientes"  # texto do cartão no menu lateral
     COLUNAS = (
         ("id", "ID", 50),
-        ("nome", "Nome", 230),
-        ("cpf", "CPF", 130),
-        ("nascimento", "Nascimento", 110),
-        ("telefone", "Telefone", 130),
-        ("email", "E-mail", 220),
+        ("nome", "Nome", 165),
+        ("cpf", "CPF", 128),
+        ("nascimento", "Nascimento", 108),
+        ("telefone", "Telefone", 138),
+        ("email", "E-mail", 205),
     )
 
     def __init__(self, master):

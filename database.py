@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS consulta (
 """
 
 
+# RN01 também garantida pelo banco: o mesmo profissional não pode ter duas
+# consultas NÃO canceladas no mesmo dia e horário de início. Consultas
+# canceladas ficam de fora do índice, então liberam o horário.
+INDICE_CONFLITO_HORARIO = """
+CREATE UNIQUE INDEX IF NOT EXISTS ux_consulta_profissional_horario
+ON consulta (profissional_id, data, hora_inicio)
+WHERE situacao != 'Cancelada'
+"""
+
+
 def conectar():
     """Abre uma conexão com chaves estrangeiras ativadas."""
     con = sqlite3.connect(DB_PATH)
@@ -100,3 +110,11 @@ def criar_tabelas():
             "INSERT OR IGNORE INTO especialidade (nome) VALUES (?)",
             [(nome,) for nome in ESPECIALIDADES_INICIAIS],
         )
+    # O índice fica em uma transação à parte: se um banco antigo já tiver dois
+    # agendamentos conflitantes, o índice não é criado, mas o sistema abre normalmente
+    # (a regra RN01 continua valendo pela verificação em services/consultas.py).
+    try:
+        with transacao() as con:
+            con.execute(INDICE_CONFLITO_HORARIO)
+    except sqlite3.IntegrityError:
+        pass
