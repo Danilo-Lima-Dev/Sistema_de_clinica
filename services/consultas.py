@@ -58,10 +58,11 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
         SELECT COUNT(*) FROM consulta
         WHERE profissional_id = ?
           AND data = ?
-          AND hora_inicio = ?
+          AND hora_inicio < ?
+          AND hora_fim > ?
           AND situacao != 'Cancelada'
     """
-    parametros = [profissional_id, data_iso, hora_inicio]
+    parametros = [profissional_id, data_iso, hora_fim, hora_inicio]
     if ignorar_id_consulta is not None:
         sql_conflito += " AND id != ?"
         parametros.append(ignorar_id_consulta)

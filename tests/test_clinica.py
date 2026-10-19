@@ -296,6 +296,24 @@ class TestConsultas(unittest.TestCase):
         with self.assertRaises(ErroValidacao):  # RN01
             consultas.agendar(id_outro, self.id_prof, "20/12/2030", "10:00")
 
+    def test_conflito_por_sobreposicao_de_horario(self):
+        """RN01: consulta dura 30 min, então horários que se sobrepõem devem ser recusados."""
+        consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "09:00")  # 09:00-09:30
+        id_outro = pacientes.cadastrar("Outro Paciente", CPF_OK_2, "02/02/1995")
+
+        # começa dentro da consulta existente
+        with self.assertRaises(ErroValidacao):
+            consultas.agendar(id_outro, self.id_prof, "20/12/2030", "09:15")
+        with self.assertRaises(ErroValidacao):
+            consultas.agendar(id_outro, self.id_prof, "20/12/2030", "09:29")
+        # termina depois que a existente já começou
+        with self.assertRaises(ErroValidacao):
+            consultas.agendar(id_outro, self.id_prof, "20/12/2030", "08:45")
+
+        # horários colados, sem sobreposição, são permitidos
+        consultas.agendar(id_outro, self.id_prof, "20/12/2030", "09:30")
+        consultas.agendar(id_outro, self.id_prof, "20/12/2030", "08:30")
+
     def test_consulta_cancelada_libera_horario(self):
         id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
         consultas.cancelar(id_c, "Paciente solicitou cancelamento")
