@@ -28,11 +28,11 @@ class TelaProfissionais(ctk.CTkFrame):
     NOME_MENU = "Profissionais"
     COLUNAS = (
         ("id", "ID", 50),
-        ("nome", "Nome", 240),
-        ("registro", "Registro (CRM)", 130),
-        ("especialidade", "Especialidade", 170),
-        ("telefone", "Telefone", 130),
-        ("ativo", "Situação", 90),
+        ("nome", "Nome", 215),
+        ("registro", "Registro (CRM)", 135),
+        ("especialidade", "Especialidade", 150),
+        ("telefone", "Telefone", 150),
+        ("ativo", "Situação", 85),
     )
 
     def __init__(self, master):
@@ -157,8 +157,11 @@ class TelaProfissionais(ctk.CTkFrame):
             self.combo_especialidade.configure(values=nomes or ["Clínica Geral"])
             if not self.var_especialidade.get() and nomes:
                 self.var_especialidade.set(nomes[0])
-        except Exception:
-            pass
+        except sqlite3.Error as erro:
+            messagebox.showerror(
+                "Erro no banco de dados",
+                f"Não foi possível carregar as especialidades: {erro}",
+            )
 
     def atualizar_lista(self):
         """Recarrega a tabela a partir do banco de dados."""

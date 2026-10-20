@@ -140,7 +140,7 @@ def criar_tabela(master, colunas, altura=8):
     )
     for chave, titulo, largura in colunas:
         tabela.heading(chave, text=titulo, anchor="w")
-        tabela.column(chave, width=largura, anchor="w")
+        tabela.column(chave, width=largura, minwidth=50, anchor="w")
     barra = ctk.CTkScrollbar(quadro, command=tabela.yview)
     tabela.configure(yscrollcommand=barra.set)
     tabela.pack(side="left", fill="both", expand=True)

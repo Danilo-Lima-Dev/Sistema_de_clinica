@@ -10,7 +10,7 @@ Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
 | Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o usuário `admin` na primeira execução |
 | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
 | Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
-| Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada e cancelar |
+| Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada, cancelar e imprimir o comprovante de agendamento (bobina 80 mm ou 58 mm) |
 
 O banco é criado com as 5 tabelas do modelo (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`)
 e já vem com as especialidades iniciais: Clínica Geral, Pediatria, Cardiologia, Dermatologia e Ortopedia.
@@ -73,6 +73,7 @@ python -m unittest discover -s tests -v
 | `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
 | `services/profissionais.py` | Regras de negócio e SQL dos profissionais (cadastrar, listar, buscar, alterar, inativar, excluir). |
 | `services/consultas.py` | Regras de negócio e SQL dos agendamentos (agendar, alterar/remarcar, cancelar, registrar realização, prevenção de conflito). |
+| `services/comprovante.py` | Comprovante de agendamento para impressora térmica: monta os dados, o texto e a página HTML (80 mm ou 58 mm) e abre a janela de impressão. |
 | `services/autenticacao.py` | Login: usuários, senha com hash (PBKDF2) e conferência. |
 | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
 | `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
@@ -80,7 +81,7 @@ python -m unittest discover -s tests -v
 | `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas com atualização automática. |
 | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
 | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |
-| `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação e cancelamento. |
+| `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação, cancelamento e botão "Imprimir comprovante". |
 | `ui/telas_prototipo.py` | Protótipos antigos de Profissionais e Consultas. Não são mais usados pelo sistema (as telas reais estão em `tela_profissionais.py` e `tela_consultas.py`). |
 | `cli/` | Versão antiga em terminal (só pacientes). Não é chamada pelo `main.py` e não passa pelo login. Ver "Versão em terminal". |
 | `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
@@ -101,14 +102,14 @@ Essa separação permite alterar o visual sem quebrar as regras (e o contrário)
 
 ## Regras já aplicadas
 
-Os códigos entre parênteses são os citados nos comentários de cada arquivo em `services/`.
+Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seção 3.
 
 **Pacientes**
 
-- Nome, CPF e data de nascimento obrigatórios (RN01).
-- CPF digitado só com números (11 dígitos) e único (RN02).
-- Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN03).
-- Paciente com consultas vinculadas não pode ser excluído (RN12).
+- Nome, CPF e data de nascimento obrigatórios (RN02).
+- CPF digitado só com números (11 dígitos) e único no sistema (RN02 e RN06).
+- Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN05).
+- Paciente com consultas vinculadas não pode ser excluído (RN04).
 
 **Profissionais**
 
@@ -125,6 +126,7 @@ Os códigos entre parênteses são os citados nos comentários de cada arquivo e
 - O mesmo profissional não pode ter duas consultas ativas no mesmo dia e horário de início; consultas canceladas não bloqueiam o horário (RN01).
 - Cada consulta tem duração fixa de 30 minutos: o horário de término é calculado automaticamente.
 - Consultas canceladas ou já realizadas não podem ser alteradas. Uma consulta realizada não pode ser cancelada, e uma cancelada não pode ser marcada como realizada.
+- Ao selecionar uma consulta na tabela aparece o botão **Imprimir comprovante**, com os dados do paciente (CPF parcialmente oculto, ex.: `529.***.***-25`), do profissional, a especialidade, a data e o horário. Escolha o papel (80 mm ou 58 mm); o comprovante abre no navegador já com a janela de impressão, onde se escolhe a impressora térmica (em "Mais definições", deixe as margens em "Nenhuma" e desmarque cabeçalhos e rodapés).
 - Consultas não são excluídas, e sim canceladas (com motivo opcional), para manter o histórico (RN07).
 
 ## Modo de teste do CPF
