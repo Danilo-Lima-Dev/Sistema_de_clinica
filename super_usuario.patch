@@ -1,0 +1,665 @@
+diff --git a/README.md b/README.md
+index 414d379..f05568e 100644
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,7 @@ Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
+ 
+ | Tela | Situação |
+ | --- | --- |
+-| Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o usuário `admin` na primeira execução |
++| Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o `admin` e o super usuário `super` na primeira execução |
+ | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
+ | Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
+ | Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada, cancelar e imprimir o comprovante de agendamento (bobina 80 mm ou 58 mm) |
+@@ -43,12 +43,15 @@ junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
+ 
+ - O login não diferencia maiúsculas de minúsculas; a senha deve ter pelo menos 6 caracteres.
+ - Depois de 5 tentativas erradas na tela de login, o programa fecha.
+-- Ainda não existe tela para cadastrar usuários nem função para trocar a senha de um usuário já criado.
+-  Para cadastrar outro usuário, rode na pasta do projeto (trocando nome, login e senha):
+-
+-```bash
+-python -c "import database; from services import autenticacao; database.criar_tabelas(); autenticacao.cadastrar_usuario('Maria Souza', 'maria', 'senha123')"
+-```
++- Existem dois tipos de usuário: o **usuário comum** (usa pacientes, profissionais e consultas) e o
++  **super usuário**, que além disso vê o item **Usuários** no menu.
++- O super usuário padrão é criado automaticamente (se ainda não houver nenhum): **usuário `super`, senha `super123`**.
++  Troque essa senha no primeiro acesso, em Usuários.
++- Na tela **Usuários**, o super usuário cadastra novos usuários e, ao selecionar um da lista, altera nome, login,
++  perfil (super ou comum) e situação (ativo/inativo), ou troca a senha (senha em branco mantém a atual). Também pode **excluir** um usuário (com confirmação).
++- Regras: só um super usuário gerencia usuários (conferido no banco a cada ação); não é possível desativar nem excluir o próprio
++  usuário, nem deixar o sistema sem nenhum super usuário ativo.
++- Bancos antigos recebem a coluna `superusuario` automaticamente na próxima execução.
+ 
+ ## Personalizar a aparência
+ 
+@@ -78,6 +81,7 @@ python -m unittest discover -s tests -v
+ | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
+ | `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
+ | `ui/tela_login.py` | Tela de login. |
++| `ui/tela_usuarios.py` | Tela "Usuários" (só para o super usuário): cadastrar, alterar e excluir usuários (nome, login, senha, perfil e situação). |
+ | `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas com atualização automática. |
+ | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
+ | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |
+diff --git a/database.py b/database.py
+index 0d7d578..9372d28 100644
+--- a/database.py
++++ b/database.py
+@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS usuario (
+     nome       TEXT NOT NULL,
+     login      TEXT NOT NULL UNIQUE,
+     senha_hash TEXT NOT NULL,
+-    ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1))
++    ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
++    -- 1 = super usuário: pode cadastrar e alterar os outros usuários
++    superusuario INTEGER NOT NULL DEFAULT 0 CHECK (superusuario IN (0, 1))
+ );
+ 
+ CREATE TABLE IF NOT EXISTS paciente (
+@@ -110,6 +112,7 @@ def criar_tabelas():
+             "INSERT OR IGNORE INTO especialidade (nome) VALUES (?)",
+             [(nome,) for nome in ESPECIALIDADES_INICIAIS],
+         )
++    _migrar_usuario()
+     # O índice fica em uma transação à parte: se um banco antigo já tiver dois
+     # agendamentos conflitantes, o índice não é criado, mas o sistema abre normalmente
+     # (a regra RN01 continua valendo pela verificação em services/consultas.py).
+@@ -118,3 +121,14 @@ def criar_tabelas():
+             con.execute(INDICE_CONFLITO_HORARIO)
+     except sqlite3.IntegrityError:
+         pass
++
++
++def _migrar_usuario():
++    """Bancos criados antes do super usuário não têm a coluna `superusuario`: adiciona."""
++    with transacao() as con:
++        colunas = [linha["name"] for linha in con.execute("PRAGMA table_info(usuario)")]
++        if "superusuario" not in colunas:
++            con.execute(
++                "ALTER TABLE usuario ADD COLUMN superusuario INTEGER NOT NULL DEFAULT 0 "
++                "CHECK (superusuario IN (0, 1))"
++            )
+diff --git a/main.py b/main.py
+index 53c6ce0..4bc84e0 100644
+--- a/main.py
++++ b/main.py
+@@ -11,6 +11,7 @@ from ui.app import App
+ def main():
+     database.criar_tabelas()             # cria o banco na primeira execução
+     autenticacao.criar_usuario_padrao()  # cria o "admin" se ainda não houver usuários
++    autenticacao.criar_superusuario_padrao()  # cria o "super" se ainda não houver super usuário
+     App().mainloop()                     # a janela começa pela tela de login
+ 
+ 
+diff --git a/services/autenticacao.py b/services/autenticacao.py
+index 49d5ab7..5c4403f 100644
+--- a/services/autenticacao.py
++++ b/services/autenticacao.py
+@@ -20,6 +20,12 @@ TAMANHO_MINIMO_SENHA = 6
+ USUARIO_PADRAO = "admin"
+ SENHA_PADRAO = "admin123"
+ 
++# Super usuário criado automaticamente (se ainda não existir nenhum): é o único tipo
++# de usuário que cadastra e altera os outros. TROQUE A SENHA depois do primeiro acesso.
++SUPER_NOME = "Super Usuário"
++SUPER_LOGIN = "super"
++SUPER_SENHA = "super123"
++
+ 
+ # ------------------------------------------------------------------ hash
+ def gerar_hash(senha, salt=None):
+@@ -42,23 +48,37 @@ def conferir_senha(senha, senha_hash):
+ 
+ 
+ # --------------------------------------------------------------- usuários
+-def cadastrar_usuario(nome, login, senha):
+-    """Cria um usuário. Levanta ErroValidacao se algum dado for inválido."""
++def _validar_nome_login(nome, login):
++    """Limpa e confere nome e login. Devolve (nome, login)."""
+     nome = (nome or "").strip()
+     login = (login or "").strip().lower()  # login não diferencia maiúsculas
+     if not nome:
+         raise ErroValidacao("O nome é obrigatório.")
+     if not login:
+         raise ErroValidacao("O usuário é obrigatório.")
++    return nome, login
++
++
++def _validar_senha(senha):
+     if len(senha or "") < TAMANHO_MINIMO_SENHA:
+         raise ErroValidacao(
+             f"A senha deve ter pelo menos {TAMANHO_MINIMO_SENHA} caracteres."
+         )
++
++
++def cadastrar_usuario(nome, login, senha, superusuario=False):
++    """Cria um usuário. Levanta ErroValidacao se algum dado for inválido.
++
++    Esta função não confere permissão (serve para o script de linha de comando e para
++    os testes). A tela usa `cadastrar_usuario_por`, que só aceita um super usuário.
++    """
++    nome, login = _validar_nome_login(nome, login)
++    _validar_senha(senha)
+     try:
+         with database.transacao() as con:
+             con.execute(
+-                "INSERT INTO usuario (nome, login, senha_hash) VALUES (?, ?, ?)",
+-                (nome, login, gerar_hash(senha)),
++                "INSERT INTO usuario (nome, login, senha_hash, superusuario) VALUES (?, ?, ?, ?)",
++                (nome, login, gerar_hash(senha), 1 if superusuario else 0),
+             )
+     except sqlite3.IntegrityError:
+         raise ErroValidacao("Já existe um usuário com esse login.") from None
+@@ -72,10 +92,108 @@ def criar_usuario_padrao():
+         cadastrar_usuario("Administrador", USUARIO_PADRAO, SENHA_PADRAO)
+ 
+ 
++def criar_superusuario_padrao():
++    """Se ainda não existe nenhum super usuário, cria o padrão (login `super`)."""
++    with database.transacao() as con:
++        total = con.execute("SELECT COUNT(*) FROM usuario WHERE superusuario = 1").fetchone()[0]
++        login_ocupado = con.execute(
++            "SELECT 1 FROM usuario WHERE login = ?", (SUPER_LOGIN,)
++        ).fetchone()
++    if total == 0 and not login_ocupado:
++        cadastrar_usuario(SUPER_NOME, SUPER_LOGIN, SUPER_SENHA, superusuario=True)
++
++
++# ------------------------------------------------- gerência (só super usuário)
++def _exigir_superusuario(executor_id):
++    """Confere NO BANCO se quem pede ainda é um super usuário ativo."""
++    with database.transacao() as con:
++        linha = con.execute(
++            "SELECT superusuario, ativo FROM usuario WHERE id = ?", (executor_id,)
++        ).fetchone()
++    if linha is None or not linha["superusuario"] or not linha["ativo"]:
++        raise ErroValidacao("Somente um super usuário pode gerenciar usuários.")
++
++
++def listar_usuarios(executor_id):
++    """Lista todos os usuários (sem o hash da senha). Só para super usuário."""
++    _exigir_superusuario(executor_id)
++    with database.transacao() as con:
++        return con.execute(
++            "SELECT id, nome, login, ativo, superusuario FROM usuario ORDER BY nome COLLATE NOCASE"
++        ).fetchall()
++
++
++def cadastrar_usuario_por(executor_id, nome, login, senha, superusuario=False):
++    """Cadastra um usuário em nome de um super usuário."""
++    _exigir_superusuario(executor_id)
++    cadastrar_usuario(nome, login, senha, superusuario)
++
++
++def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True, superusuario=False):
++    """Altera nome, login, situação e perfil de um usuário; troca a senha se `senha` vier preenchida.
++
++    Senha em branco = mantém a senha atual. Só um super usuário pode usar.
++    """
++    _exigir_superusuario(executor_id)
++    nome, login = _validar_nome_login(nome, login)
++    if senha:
++        _validar_senha(senha)
++    ativo, superusuario = (1 if ativo else 0), (1 if superusuario else 0)
++
++    try:
++        with database.transacao() as con:
++            atual = con.execute(
++                "SELECT superusuario, ativo FROM usuario WHERE id = ?", (id_usuario,)
++            ).fetchone()
++            if atual is None:
++                raise ErroValidacao("Usuário não encontrado.")
++            if id_usuario == executor_id and not ativo:
++                raise ErroValidacao("Você não pode desativar o seu próprio usuário.")
++            era_super_ativo = atual["superusuario"] and atual["ativo"]
++            if era_super_ativo and not (superusuario and ativo):
++                restantes = con.execute(
++                    "SELECT COUNT(*) FROM usuario WHERE superusuario = 1 AND ativo = 1 AND id != ?",
++                    (id_usuario,),
++                ).fetchone()[0]
++                if restantes == 0:
++                    raise ErroValidacao(
++                        "Deve existir pelo menos um super usuário ativo no sistema."
++                    )
++            campos = "nome = ?, login = ?, ativo = ?, superusuario = ?"
++            valores = [nome, login, ativo, superusuario]
++            if senha:
++                campos += ", senha_hash = ?"
++                valores.append(gerar_hash(senha))
++            con.execute(f"UPDATE usuario SET {campos} WHERE id = ?", (*valores, id_usuario))
++    except sqlite3.IntegrityError:
++        raise ErroValidacao("Já existe um usuário com esse login.") from None
++
++
++def excluir_usuario(executor_id, id_usuario):
++    """Exclui um usuário de vez. Só um super usuário pode; ninguém exclui o próprio usuário."""
++    _exigir_superusuario(executor_id)
++    if id_usuario == executor_id:
++        raise ErroValidacao("Você não pode excluir o seu próprio usuário.")
++    with database.transacao() as con:
++        alvo = con.execute(
++            "SELECT superusuario, ativo FROM usuario WHERE id = ?", (id_usuario,)
++        ).fetchone()
++        if alvo is None:
++            raise ErroValidacao("Usuário não encontrado.")
++        if alvo["superusuario"] and alvo["ativo"]:
++            restantes = con.execute(
++                "SELECT COUNT(*) FROM usuario WHERE superusuario = 1 AND ativo = 1 AND id != ?",
++                (id_usuario,),
++            ).fetchone()[0]
++            if restantes == 0:
++                raise ErroValidacao("Deve existir pelo menos um super usuário ativo no sistema.")
++        con.execute("DELETE FROM usuario WHERE id = ?", (id_usuario,))
++
++
+ def autenticar(login, senha):
+     """Confere login e senha.
+ 
+-    Devolve um dicionário com os dados do usuário (id, nome, login) se estiver
++    Devolve um dicionário com os dados do usuário (id, nome, login, superusuario) se estiver
+     correto; senão levanta ErroValidacao. A mensagem é a mesma para "usuário não
+     existe" e "senha errada", para não revelar quais logins existem.
+     """
+@@ -85,7 +203,7 @@ def autenticar(login, senha):
+ 
+     with database.transacao() as con:
+         linha = con.execute(
+-            "SELECT id, nome, login, senha_hash, ativo FROM usuario WHERE login = ?",
++            "SELECT id, nome, login, senha_hash, ativo, superusuario FROM usuario WHERE login = ?",
+             (login,),
+         ).fetchone()
+ 
+@@ -97,4 +215,7 @@ def autenticar(login, senha):
+     if not linha["ativo"]:
+         raise ErroValidacao("Este usuário está desativado.")
+ 
+-    return {"id": linha["id"], "nome": linha["nome"], "login": linha["login"]}
++    return {
++        "id": linha["id"], "nome": linha["nome"], "login": linha["login"],
++        "superusuario": bool(linha["superusuario"]),
++    }
+diff --git a/tests/test_clinica.py b/tests/test_clinica.py
+index 02bb73a..9c78525 100644
+--- a/tests/test_clinica.py
++++ b/tests/test_clinica.py
+@@ -186,6 +186,98 @@ class TestAutenticacao(unittest.TestCase):
+             autenticacao.cadastrar_usuario("Bia", "bia", "123")  # senha curta
+ 
+ 
++class TestSuperUsuario(unittest.TestCase):
++    def setUp(self):
++        self._pasta = tempfile.TemporaryDirectory()
++        database.DB_PATH = Path(self._pasta.name) / "super.db"
++        database.criar_tabelas()
++        autenticacao.criar_usuario_padrao()
++        autenticacao.criar_superusuario_padrao()
++        self.super = autenticacao.autenticar(autenticacao.SUPER_LOGIN, autenticacao.SUPER_SENHA)
++        self.comum = autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
++
++    def tearDown(self):
++        self._pasta.cleanup()
++
++    def test_superusuario_criado_uma_vez_e_com_perfil(self):
++        autenticacao.criar_superusuario_padrao()  # não duplica
++        self.assertTrue(self.super["superusuario"])
++        self.assertFalse(self.comum["superusuario"])  # o admin continua comum
++        ids = [u["id"] for u in autenticacao.listar_usuarios(self.super["id"])]
++        self.assertEqual(len(ids), 2)
++
++    def test_usuario_comum_nao_gerencia(self):
++        with self.assertRaises(ErroValidacao):
++            autenticacao.listar_usuarios(self.comum["id"])
++        with self.assertRaises(ErroValidacao):
++            autenticacao.cadastrar_usuario_por(self.comum["id"], "Ana", "ana", "segredo123")
++        with self.assertRaises(ErroValidacao):
++            autenticacao.atualizar_usuario(self.comum["id"], self.comum["id"], "X", "admin", superusuario=True)
++
++    def test_superusuario_cadastra_e_novo_usuario_entra(self):
++        autenticacao.cadastrar_usuario_por(self.super["id"], "Ana", "Ana", "segredo123")
++        self.assertFalse(autenticacao.autenticar("ana", "segredo123")["superusuario"])
++
++    def test_superusuario_troca_dados_e_senha(self):
++        autenticacao.atualizar_usuario(
++            self.super["id"], self.comum["id"], "Admin Novo", "admin2", senha="novasenha1"
++        )
++        usuario = autenticacao.autenticar("admin2", "novasenha1")
++        self.assertEqual(usuario["nome"], "Admin Novo")
++        with self.assertRaises(ErroValidacao):
++            autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
++
++    def test_senha_em_branco_mantem_a_atual(self):
++        autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", senha="")
++        autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
++
++    def test_troca_com_dados_invalidos(self):
++        with self.assertRaises(ErroValidacao):  # senha curta
++            autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "A", "admin", senha="123")
++        with self.assertRaises(ErroValidacao):  # login já usado
++            autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "A", "super")
++        with self.assertRaises(ErroValidacao):  # usuário inexistente
++            autenticacao.atualizar_usuario(self.super["id"], 999, "A", "zzz")
++
++    def test_nao_remove_o_ultimo_superusuario(self):
++        with self.assertRaises(ErroValidacao):  # se desativar
++            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "S", "super", ativo=False, superusuario=True)
++        with self.assertRaises(ErroValidacao):  # se deixar de ser super
++            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "S", "super", ativo=True, superusuario=False)
++        # com outro super ativo, já pode
++        autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", superusuario=True)
++        autenticacao.atualizar_usuario(self.comum["id"], self.super["id"], "S", "super", superusuario=False)
++
++    def test_usuario_desativado_nao_entra(self):
++        autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", ativo=False)
++        with self.assertRaises(ErroValidacao):
++            autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
++
++    def test_excluir_usuario(self):
++        autenticacao.excluir_usuario(self.super["id"], self.comum["id"])
++        with self.assertRaises(ErroValidacao):
++            autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
++        self.assertEqual(len(autenticacao.listar_usuarios(self.super["id"])), 1)
++
++    def test_excluir_com_regras(self):
++        with self.assertRaises(ErroValidacao):  # usuário comum não exclui
++            autenticacao.excluir_usuario(self.comum["id"], self.super["id"])
++        with self.assertRaises(ErroValidacao):  # não exclui a si mesmo
++            autenticacao.excluir_usuario(self.super["id"], self.super["id"])
++        with self.assertRaises(ErroValidacao):  # inexistente
++            autenticacao.excluir_usuario(self.super["id"], 999)
++        self.assertEqual(len(autenticacao.listar_usuarios(self.super["id"])), 2)
++
++    def test_banco_antigo_ganha_a_coluna(self):
++        with database.transacao() as con:
++            con.executescript("DROP TABLE usuario; CREATE TABLE usuario (id INTEGER PRIMARY KEY AUTOINCREMENT, "
++                              "nome TEXT NOT NULL, login TEXT NOT NULL UNIQUE, senha_hash TEXT NOT NULL, "
++                              "ativo INTEGER NOT NULL DEFAULT 1);")
++        database.criar_tabelas()  # migra
++        autenticacao.criar_superusuario_padrao()
++        self.assertTrue(autenticacao.autenticar("super", autenticacao.SUPER_SENHA)["superusuario"])
++
++
+ class TestBanco(unittest.TestCase):
+     def test_persistencia_apos_reabrir(self):
+         with tempfile.TemporaryDirectory() as pasta:
+diff --git a/ui/app.py b/ui/app.py
+index 034c38f..a247895 100644
+--- a/ui/app.py
++++ b/ui/app.py
+@@ -16,13 +16,15 @@ from ui.tela_consultas import TelaConsultas
+ from ui.tela_login import TelaLogin
+ from ui.tela_pacientes import TelaPacientes
+ from ui.tela_profissionais import TelaProfissionais
++from ui.tela_usuarios import TelaUsuarios
+ 
+ 
+ class App(ctk.CTk):
+     # Telas do sistema, na ordem em que aparecem no menu.
+     # Cada tela tem o atributo NOME_MENU com o texto do cartão.
+     TELAS = (TelaPacientes, TelaProfissionais, TelaConsultas)
+-
++    # Telas extras que só o super usuário vê.
++    TELAS_SUPER = (TelaUsuarios,)
+ 
+     def __init__(self):
+         tema.aplicar_tema()
+@@ -50,6 +52,12 @@ class App(ctk.CTk):
+             f"Detalhe: {valor}",
+         )
+ 
++    def _telas_do_usuario(self):
++        """Telas que o usuário logado pode abrir (o super usuário ganha a de Usuários)."""
++        if self.usuario and self.usuario.get("superusuario"):
++            return self.TELAS + self.TELAS_SUPER
++        return self.TELAS
++
+     # ----------------------------------------------------- troca de telas
+     def _novo_container(self):
+         """Apaga o que está na janela e devolve um quadro limpo para montar a próxima tela."""
+@@ -115,8 +123,11 @@ class App(ctk.CTk):
+         conteudo.grid_rowconfigure(0, weight=1)
+ 
+         self.telas = {}
+-        for classe in self.TELAS:
+-            self.telas[classe] = classe(conteudo)
++        for classe in self._telas_do_usuario():
++            if classe is TelaUsuarios:  # precisa saber quem está logado
++                self.telas[classe] = classe(conteudo, self.usuario)
++            else:
++                self.telas[classe] = classe(conteudo)
+         self._mostrar_tela(self.TELAS[0])
+         self._centralizar()
+ 
+@@ -177,7 +188,7 @@ class App(ctk.CTk):
+             menu, text="MENU", font=tema.fonte(11, True),
+             text_color=tema.COR_MENU_TEXTO, anchor="w",
+         ).pack(fill="x", padx=22, pady=(0, 6))
+-        for classe in self.TELAS:
++        for classe in self._telas_do_usuario():
+             cartao = ctk.CTkButton(
+                 menu, text=classe.NOME_MENU, anchor="w", height=52,
+                 corner_radius=tema.RAIO_CARTAO, font=tema.fonte(14, True),
+diff --git a/ui/tela_usuarios.py b/ui/tela_usuarios.py
+new file mode 100644
+index 0000000..3efa0b1
+--- /dev/null
++++ b/ui/tela_usuarios.py
+@@ -0,0 +1,219 @@
++"""Tela de gerência de usuários (só aparece para o super usuário).
++
++Permite cadastrar novos usuários, alterar os já cadastrados (nome, login, senha,
++perfil e situação) e excluí-los. A lógica e a conferência de permissão ficam em
++`services/autenticacao`; aqui só há o visual.
++"""
++import sqlite3
++from tkinter import messagebox
++
++import customtkinter as ctk
++
++from services import autenticacao
++from services.validacoes import ErroValidacao
++from ui import componentes, tema
++
++
++class TelaUsuarios(ctk.CTkFrame):
++    NOME_MENU = "Usuários"
++    COLUNAS = (
++        ("id", "ID", 50),
++        ("nome", "Nome", 240),
++        ("login", "Usuário", 160),
++        ("perfil", "Perfil", 150),
++        ("situacao", "Situação", 100),
++    )
++
++    def __init__(self, master, usuario_logado):
++        super().__init__(master, fg_color="transparent")
++        self.usuario_logado = usuario_logado
++        self.id_selecionado = None
++
++        self.var_nome = ctk.StringVar()
++        self.var_login = ctk.StringVar()
++        self.var_senha = ctk.StringVar()
++        self.var_mostrar = ctk.BooleanVar(value=False)
++        self.var_super = ctk.BooleanVar(value=False)
++        self.var_ativo = ctk.BooleanVar(value=True)
++
++        self.grid_columnconfigure(0, weight=1)
++        self.grid_rowconfigure(2, weight=1)
++
++        componentes.cabecalho(
++            self, "Usuários", "Cadastre novos usuários e altere os dados ou a senha dos já cadastrados."
++        ).grid(row=0, column=0, sticky="w", pady=(0, 16))
++
++        self._montar_formulario()
++        self._montar_lista()
++        self.atualizar_lista()
++
++    # ------------------------------------------------------------ layout
++    def _montar_formulario(self):
++        cartao = componentes.cartao(self)
++        cartao.grid(row=1, column=0, sticky="ew", pady=(0, 16))
++        self.titulo_form = componentes.titulo_cartao(cartao, "Novo usuário")
++
++        grade = ctk.CTkFrame(cartao, fg_color="transparent")
++        grade.pack(fill="x", padx=20)
++        for coluna in range(3):
++            grade.grid_columnconfigure(coluna, weight=1, uniform="campos_usuario")
++
++        bloco, self.entrada_nome = componentes.campo_texto(grade, "Nome *", self.var_nome)
++        bloco.grid(row=0, column=0, sticky="ew", padx=(0, 8), pady=(0, 12))
++
++        bloco, self.entrada_login = componentes.campo_texto(
++            grade, "Usuário (login) *", self.var_login, dica="sem diferenciar maiúsculas"
++        )
++        bloco.grid(row=0, column=1, sticky="ew", padx=8, pady=(0, 12))
++
++        bloco, self.entrada_senha = componentes.campo_texto(
++            grade, "Senha *", self.var_senha,
++            dica=f"mín. {autenticacao.TAMANHO_MINIMO_SENHA} caracteres",
++        )
++        bloco.grid(row=0, column=2, sticky="ew", padx=(8, 0), pady=(0, 12))
++        self.entrada_senha.configure(show="•")
++
++        opcoes = ctk.CTkFrame(cartao, fg_color="transparent")
++        opcoes.pack(fill="x", padx=20, pady=(0, 6))
++        for texto, variavel in (
++            ("Mostrar senha", self.var_mostrar),
++            ("Super usuário (pode gerenciar usuários)", self.var_super),
++            ("Usuário ativo", self.var_ativo),
++        ):
++            ctk.CTkCheckBox(
++                opcoes, text=texto, variable=variavel, font=tema.fonte(12),
++                text_color=tema.COR_TEXTO, fg_color=tema.COR_PRIMARIA,
++                hover_color=tema.COR_PRIMARIA_HOVER, border_color=tema.COR_BORDA,
++                checkbox_width=18, checkbox_height=18, corner_radius=5,
++                command=self._alternar_senha if variavel is self.var_mostrar else None,
++            ).pack(side="left", padx=(0, 22))
++
++        botoes = ctk.CTkFrame(cartao, fg_color="transparent")
++        botoes.pack(fill="x", padx=20, pady=(8, 20))
++        self.botao_salvar = componentes.botao(botoes, "Cadastrar", self.salvar, largura=170)
++        self.botao_salvar.pack(side="left")
++        componentes.botao(
++            botoes, "Limpar / Novo", self.limpar, estilo="secundario"
++        ).pack(side="left", padx=10)
++        self.botao_excluir = componentes.botao(
++            botoes, "Excluir", self.excluir, estilo="perigo", state="disabled"
++        )
++        self.botao_excluir.pack(side="left")
++
++    def _montar_lista(self):
++        cartao = componentes.cartao(self)
++        cartao.grid(row=2, column=0, sticky="nsew")
++        cartao.grid_columnconfigure(0, weight=1)
++        cartao.grid_rowconfigure(0, weight=1)
++
++        quadro, self.tabela = componentes.criar_tabela(cartao, self.COLUNAS, altura=6)
++        quadro.grid(row=0, column=0, sticky="nsew", padx=20, pady=(18, 0))
++        self.tabela.bind("<<TreeviewSelect>>", self._ao_selecionar)
++
++        self.rotulo_total = ctk.CTkLabel(
++            cartao, text="", font=tema.fonte(12), text_color=tema.COR_TEXTO_SUAVE, anchor="w"
++        )
++        self.rotulo_total.grid(row=1, column=0, sticky="w", padx=20, pady=(8, 14))
++
++    # ------------------------------------------------------------- dados
++    def atualizar_lista(self):
++        for item in self.tabela.get_children():
++            self.tabela.delete(item)
++        try:
++            lista = autenticacao.listar_usuarios(self.usuario_logado["id"])
++        except ErroValidacao as erro:
++            messagebox.showwarning("Acesso negado", str(erro))
++            return
++        except sqlite3.Error as erro:
++            messagebox.showerror("Erro no banco de dados", f"Não foi possível listar: {erro}")
++            return
++        for u in lista:
++            self.tabela.insert(
++                "", "end", iid=str(u["id"]),
++                values=(
++                    u["id"], u["nome"], u["login"],
++                    "Super usuário" if u["superusuario"] else "Usuário",
++                    "Ativo" if u["ativo"] else "Inativo",
++                ),
++            )
++        self.rotulo_total.configure(text=f"{len(lista)} usuário(s) cadastrado(s).")
++
++    def _ao_selecionar(self, _evento):
++        selecionados = self.tabela.selection()
++        if not selecionados:
++            return
++        self.id_selecionado = int(selecionados[0])
++        _id, nome, login, perfil, situacao = self.tabela.item(selecionados[0], "values")
++        self.var_nome.set(nome)
++        self.var_login.set(login)
++        self.var_senha.set("")  # a senha atual nunca é mostrada
++        self.var_super.set(perfil == "Super usuário")
++        self.var_ativo.set(situacao == "Ativo")
++        self.titulo_form.configure(
++            text=f"Editando usuário #{self.id_selecionado} (senha em branco mantém a atual)"
++        )
++        self.botao_salvar.configure(text="Salvar alterações")
++        self.botao_excluir.configure(state="normal")
++
++    # ------------------------------------------------------------ ações
++    def _alternar_senha(self):
++        self.entrada_senha.configure(show="" if self.var_mostrar.get() else "•")
++
++    def salvar(self):
++        executor = self.usuario_logado["id"]
++        try:
++            if self.id_selecionado is None:
++                autenticacao.cadastrar_usuario_por(
++                    executor, self.var_nome.get(), self.var_login.get(),
++                    self.var_senha.get(), self.var_super.get(),
++                )
++                mensagem = "Usuário cadastrado com sucesso."
++            else:
++                autenticacao.atualizar_usuario(
++                    executor, self.id_selecionado, self.var_nome.get(), self.var_login.get(),
++                    self.var_senha.get(), self.var_ativo.get(), self.var_super.get(),
++                )
++                mensagem = "Usuário atualizado com sucesso."
++        except ErroValidacao as erro:
++            messagebox.showwarning("Verifique os dados", str(erro))
++            return
++        except sqlite3.Error as erro:
++            messagebox.showerror("Erro no banco de dados", f"Não foi possível salvar: {erro}")
++            return
++        messagebox.showinfo("Sucesso", mensagem)
++        self.limpar()
++        self.atualizar_lista()
++
++    def excluir(self):
++        if self.id_selecionado is None:
++            return
++        nome = self.var_nome.get()
++        if not messagebox.askyesno(
++            "Confirmar exclusão",
++            f"Deseja excluir o usuário '{nome}'?\nEssa ação não pode ser desfeita "
++            "(para só bloquear o acesso, desmarque \"Usuário ativo\" e salve).",
++        ):
++            return
++        try:
++            autenticacao.excluir_usuario(self.usuario_logado["id"], self.id_selecionado)
++        except ErroValidacao as erro:
++            messagebox.showwarning("Não foi possível excluir", str(erro))
++            return
++        except sqlite3.Error as erro:
++            messagebox.showerror("Erro no banco de dados", f"Não foi possível excluir: {erro}")
++            return
++        messagebox.showinfo("Sucesso", "Usuário excluído com sucesso.")
++        self.limpar()
++        self.atualizar_lista()
++
++    def limpar(self):
++        self.id_selecionado = None
++        for variavel in (self.var_nome, self.var_login, self.var_senha):
++            variavel.set("")
++        self.var_super.set(False)
++        self.var_ativo.set(True)
++        self.tabela.selection_remove(self.tabela.selection())
++        self.titulo_form.configure(text="Novo usuário")
++        self.botao_salvar.configure(text="Cadastrar")
++        self.botao_excluir.configure(state="disabled")
++        self.entrada_nome.focus_set()
