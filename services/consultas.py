@@ -187,7 +187,7 @@ def listar(busca="", situacao=None, data_iso=None, profissional_id=None, pacient
     sql = """
         SELECT c.id, c.paciente_id, c.profissional_id, c.data, c.hora_inicio, c.hora_fim,
                c.situacao, c.motivo_cancelamento, c.observacoes,
-               p.nome AS paciente_nome, p.cpf AS paciente_cpf,
+               p.nome AS paciente_nome, p.cpf AS paciente_cpf, p.telefone AS paciente_telefone,
                pr.nome AS profissional_nome, pr.registro AS profissional_registro,
                e.nome AS especialidade_nome
         FROM consulta c
@@ -241,7 +241,7 @@ def obter(id_consulta):
     sql = """
         SELECT c.id, c.paciente_id, c.profissional_id, c.data, c.hora_inicio, c.hora_fim,
                c.situacao, c.motivo_cancelamento, c.observacoes,
-               p.nome AS paciente_nome, p.cpf AS paciente_cpf,
+               p.nome AS paciente_nome, p.cpf AS paciente_cpf, p.telefone AS paciente_telefone,
                pr.nome AS profissional_nome, pr.registro AS profissional_registro,
                e.nome AS especialidade_nome
         FROM consulta c

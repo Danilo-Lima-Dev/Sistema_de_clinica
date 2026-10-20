@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import database  # noqa: E402
-from services import autenticacao, consultas, pacientes, profissionais  # noqa: E402
+from services import autenticacao, comprovante, consultas, pacientes, profissionais  # noqa: E402
 from services.validacoes import (  # noqa: E402
     ErroValidacao,
     calcular_hora_fim,
@@ -385,6 +385,52 @@ class TestConsultas(unittest.TestCase):
         self.assertEqual(len(consultas.listar(busca="20/12/2030")), 1)
         self.assertEqual(len(consultas.listar(busca="22/12/2030")), 0)
         self.assertEqual(len(consultas.listar(busca="Beatriz")), 2)  # busca por nome continua valendo
+
+
+class TestComprovante(unittest.TestCase):
+    """Comprovante de agendamento para impressora térmica."""
+
+    def setUp(self):
+        self._pasta = tempfile.TemporaryDirectory()
+        database.DB_PATH = Path(self._pasta.name) / "comprovante.db"
+        database.criar_tabelas()
+        pac = pacientes.cadastrar("Maria Silva", CPF_OK, "25/03/1990", "86999990001")
+        prof = profissionais.cadastrar("Dra. Helena Duarte", "CRM-PI 2002", "Pediatria", "")
+        self.id_consulta = consultas.agendar(pac, prof, "01/01/2099", "09:30", "Retorno")
+
+    def tearDown(self):
+        self._pasta.cleanup()
+
+    def test_dados_e_texto_trazem_tudo(self):
+        d = comprovante.dados_do_comprovante(self.id_consulta)
+        texto = comprovante.gerar_texto(d, 80)
+        for esperado in ("Maria Silva", "529.***.***-25", "(86) 99999-0001", "Dra. Helena Duarte",
+                         "CRM-PI 2002", "Pediatria", "01/01/2099", "09:30 as 10:00", "Agendada"):
+            self.assertIn(esperado, texto)
+
+    def test_cpf_sai_mascarado(self):
+        d = comprovante.dados_do_comprovante(self.id_consulta)
+        self.assertEqual(d["cpf"], "529.***.***-25")
+        self.assertNotIn("982.247", comprovante.gerar_texto(d))
+        self.assertNotIn("982", comprovante.gerar_html(d).split("<body")[1])
+        self.assertEqual(comprovante.mascarar_cpf("123"), "***.***.***-**")
+
+    def test_texto_respeita_largura_da_bobina(self):
+        d = comprovante.dados_do_comprovante(self.id_consulta)
+        for mm, colunas in ((80, 42), (58, 32)):
+            for linha in comprovante.gerar_texto(d, mm).splitlines():
+                self.assertLessEqual(len(linha), colunas)
+
+    def test_html_tem_largura_da_bobina_e_escapa_texto(self):
+        d = comprovante.dados_do_comprovante(self.id_consulta)
+        d["observacoes"] = "<b>teste</b>"
+        pagina = comprovante.gerar_html(d, 58)
+        self.assertIn("width: 50mm", pagina)
+        self.assertIn("&lt;b&gt;teste&lt;/b&gt;", pagina)
+
+    def test_consulta_inexistente(self):
+        with self.assertRaises(ErroValidacao):
+            comprovante.dados_do_comprovante(9999)
 
 
 if __name__ == "__main__":

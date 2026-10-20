@@ -7,7 +7,7 @@ from tkinter import messagebox, simpledialog
 
 import customtkinter as ctk
 
-from services import consultas, pacientes, profissionais
+from services import comprovante, consultas, pacientes, profissionais
 from services.validacoes import (
     ErroValidacao,
     formatar_cpf,
@@ -138,6 +138,25 @@ class TelaConsultas(ctk.CTkFrame):
             estilo="perigo", state="disabled", largura=160
         )
         self.botao_cancelar.pack(side="left")
+
+        # Impressão do comprovante: o grupo só aparece quando uma consulta é selecionada.
+        self.var_papel = ctk.StringVar(value="80 mm")
+        self.grupo_comprovante = ctk.CTkFrame(self.cartao_form, fg_color="transparent")
+        componentes.botao(
+            self.grupo_comprovante, "Imprimir comprovante", self.imprimir_comprovante,
+            largura=190,
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(
+            self.grupo_comprovante, text="Papel:", font=tema.fonte(12, True),
+            text_color=tema.COR_TEXTO,
+        ).pack(side="left", padx=(6, 6))
+        ctk.CTkOptionMenu(
+            self.grupo_comprovante, values=["80 mm", "58 mm"], variable=self.var_papel,
+            width=90, height=38, corner_radius=tema.RAIO_BOTAO,
+            fg_color=tema.COR_CARTAO, text_color=tema.COR_TEXTO,
+            button_color=tema.COR_BORDA, button_hover_color=tema.COR_HOVER_SUAVE,
+            font=tema.fonte(12, True), dropdown_font=tema.fonte(12),
+        ).pack(side="left")
 
     def _montar_lista(self):
         cartao = componentes.cartao(self)
@@ -303,6 +322,7 @@ class TelaConsultas(ctk.CTkFrame):
         self.titulo_form.configure(
             text=f"Editando consulta #{self.id_selecionado} ({self.situacao_selecionada})"
         )
+        self.grupo_comprovante.pack(fill="x", padx=20, pady=(0, 18))  # mostra o botão de impressão
 
         if self.situacao_selecionada == "Agendada":
             self.botao_salvar.configure(state="normal", text="Salvar alterações")
@@ -390,9 +410,22 @@ class TelaConsultas(ctk.CTkFrame):
         self.limpar()
         self.atualizar_lista()
 
+    def imprimir_comprovante(self):
+        """Abre o comprovante da consulta selecionada na janela de impressão."""
+        if self.id_selecionado is None:
+            return
+        largura = 58 if self.var_papel.get().startswith("58") else 80
+        try:
+            comprovante.imprimir(self.id_selecionado, largura, clinica=tema.NOME_PROGRAMA)
+        except ErroValidacao as erro:
+            messagebox.showwarning("Comprovante", str(erro))
+        except sqlite3.Error as erro:
+            messagebox.showerror("Erro no banco de dados", f"Não foi possível gerar: {erro}")
+
     def limpar(self):
         self.id_selecionado = None
         self.situacao_selecionada = None
+        self.grupo_comprovante.pack_forget()  # esconde o botão de impressão
         self.var_data.set("")
         self.var_hora.set("")
         self.var_obs.set("")

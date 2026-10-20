@@ -1,0 +1,371 @@
+diff --git a/README.md b/README.md
+index 6b0570e..414d379 100644
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,7 @@ Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
+ | Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o usuário `admin` na primeira execução |
+ | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
+ | Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
+-| Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada e cancelar |
++| Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada, cancelar e imprimir o comprovante de agendamento (bobina 80 mm ou 58 mm) |
+ 
+ O banco é criado com as 5 tabelas do modelo (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`)
+ e já vem com as especialidades iniciais: Clínica Geral, Pediatria, Cardiologia, Dermatologia e Ortopedia.
+@@ -73,6 +73,7 @@ python -m unittest discover -s tests -v
+ | `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
+ | `services/profissionais.py` | Regras de negócio e SQL dos profissionais (cadastrar, listar, buscar, alterar, inativar, excluir). |
+ | `services/consultas.py` | Regras de negócio e SQL dos agendamentos (agendar, alterar/remarcar, cancelar, registrar realização, prevenção de conflito). |
++| `services/comprovante.py` | Comprovante de agendamento para impressora térmica: monta os dados, o texto e a página HTML (80 mm ou 58 mm) e abre a janela de impressão. |
+ | `services/autenticacao.py` | Login: usuários, senha com hash (PBKDF2) e conferência. |
+ | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
+ | `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
+@@ -80,7 +81,7 @@ python -m unittest discover -s tests -v
+ | `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas com atualização automática. |
+ | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
+ | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |
+-| `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação e cancelamento. |
++| `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação, cancelamento e botão "Imprimir comprovante". |
+ | `ui/telas_prototipo.py` | Protótipos antigos de Profissionais e Consultas. Não são mais usados pelo sistema (as telas reais estão em `tela_profissionais.py` e `tela_consultas.py`). |
+ | `cli/` | Versão antiga em terminal (só pacientes). Não é chamada pelo `main.py` e não passa pelo login. Ver "Versão em terminal". |
+ | `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
+@@ -125,6 +126,7 @@ Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seçã
+ - O mesmo profissional não pode ter duas consultas ativas no mesmo dia e horário de início; consultas canceladas não bloqueiam o horário (RN01).
+ - Cada consulta tem duração fixa de 30 minutos: o horário de término é calculado automaticamente.
+ - Consultas canceladas ou já realizadas não podem ser alteradas. Uma consulta realizada não pode ser cancelada, e uma cancelada não pode ser marcada como realizada.
++- Ao selecionar uma consulta na tabela aparece o botão **Imprimir comprovante**, com os dados do paciente (CPF parcialmente oculto, ex.: `529.***.***-25`), do profissional, a especialidade, a data e o horário. Escolha o papel (80 mm ou 58 mm); o comprovante abre no navegador já com a janela de impressão, onde se escolhe a impressora térmica (em "Mais definições", deixe as margens em "Nenhuma" e desmarque cabeçalhos e rodapés).
+ - Consultas não são excluídas, e sim canceladas (com motivo opcional), para manter o histórico (RN07).
+ 
+ ## Modo de teste do CPF
+diff --git a/services/comprovante.py b/services/comprovante.py
+new file mode 100644
+index 0000000..f9c7e3f
+--- /dev/null
++++ b/services/comprovante.py
+@@ -0,0 +1,169 @@
++"""Comprovante de agendamento para impressora térmica (bobina).
++
++Monta o comprovante de uma consulta em dois formatos:
++  * texto simples (`gerar_texto`) - serve para testes, para salvar em .txt ou para
++    enviar direto a uma impressora que aceite texto;
++  * página HTML (`gerar_html`) - com tamanho de papel de bobina (80 mm ou 58 mm).
++    É aberta no navegador já com a janela de impressão: basta escolher a impressora
++    térmica. Funciona em Windows, Linux e macOS sem instalar nada.
++
++Este módulo não usa a interface gráfica; a tela só chama `imprimir`.
++"""
++import html
++import tempfile
++import webbrowser
++from datetime import datetime
++from pathlib import Path
++
++from services import consultas
++from services.validacoes import (
++    ErroValidacao,
++    formatar_telefone,
++    iso_para_data_br,
++    somente_digitos,
++)
++
++# largura do papel (mm) -> quantidade de caracteres por linha na versão texto
++LARGURAS = {80: 42, 58: 32}
++NOME_CLINICA = "Sistema de Clínica"
++
++
++def mascarar_cpf(cpf):
++    """Mostra só os 3 primeiros e os 2 últimos dígitos (LGPD): '52998224725' -> '529.***.***-25'."""
++    d = somente_digitos(cpf)
++    if len(d) != 11:
++        return "***.***.***-**"
++    return f"{d[:3]}.***.***-{d[9:]}"
++
++
++def dados_do_comprovante(id_consulta, clinica=NOME_CLINICA):
++    """Busca a consulta e devolve só o que vai impresso, já formatado."""
++    c = consultas.obter(id_consulta)
++    if not c:
++        raise ErroValidacao("Consulta não encontrada.")
++    return {
++        "clinica": clinica,
++        "numero": f"{c['id']:06d}",
++        "paciente": c["paciente_nome"],
++        "cpf": mascarar_cpf(c["paciente_cpf"]),
++        "telefone": formatar_telefone(c["paciente_telefone"]) if c["paciente_telefone"] else "",
++        "profissional": c["profissional_nome"],
++        "registro": c["profissional_registro"],
++        "especialidade": c["especialidade_nome"],
++        "data": iso_para_data_br(c["data"]),
++        "hora": c["hora_inicio"],
++        "hora_fim": c["hora_fim"],
++        "situacao": c["situacao"],
++        "observacoes": c["observacoes"] or "",
++        "emitido_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
++    }
++
++
++def _quebrar(texto, largura):
++    """Quebra um texto longo em linhas de, no máximo, `largura` caracteres."""
++    linhas, atual = [], ""
++    for palavra in texto.split():
++        while len(palavra) > largura:  # palavra maior que a linha
++            if atual:
++                linhas.append(atual)
++                atual = ""
++            linhas.append(palavra[:largura])
++            palavra = palavra[largura:]
++        if len(atual) + len(palavra) + (1 if atual else 0) > largura:
++            linhas.append(atual)
++            atual = palavra
++        else:
++            atual = f"{atual} {palavra}".strip()
++    if atual:
++        linhas.append(atual)
++    return linhas or [""]
++
++
++def gerar_texto(d, largura_mm=80):
++    """Comprovante em texto puro, centralizado para a largura da bobina."""
++    n = LARGURAS.get(largura_mm, LARGURAS[80])
++    sep = "-" * n
++    linhas = [d.get("clinica", NOME_CLINICA).center(n), "COMPROVANTE DE AGENDAMENTO".center(n), sep]
++
++    def campo(rotulo, valor):
++        if valor:
++            linhas.extend(_quebrar(f"{rotulo}: {valor}", n))
++
++    campo("Comprovante n.", d["numero"])
++    linhas.append(sep)
++    linhas.append("PACIENTE")
++    campo("Nome", d["paciente"])
++    campo("CPF", d["cpf"])
++    campo("Telefone", d["telefone"])
++    linhas.append(sep)
++    linhas.append("PROFISSIONAL")
++    campo("Nome", d["profissional"])
++    campo("Registro", d["registro"])
++    campo("Especialidade", d["especialidade"])
++    linhas.append(sep)
++    linhas.append("CONSULTA")
++    campo("Data", d["data"])
++    campo("Horario", f"{d['hora']} as {d['hora_fim']}")
++    campo("Situacao", d["situacao"])
++    campo("Obs", d["observacoes"])
++    linhas.append(sep)
++    linhas.extend(_quebrar("Chegue com 15 minutos de antecedencia e guarde este comprovante.", n))
++    linhas.append(sep)
++    linhas.append(f"Emitido em {d['emitido_em']}".center(n))
++    return "\n".join(linhas) + "\n"
++
++
++def gerar_html(d, largura_mm=80):
++    """Página HTML com a largura útil da bobina. Abre a janela de impressão sozinha."""
++    e = html.escape
++    fonte = "11pt" if largura_mm >= 80 else "9pt"
++
++    def bloco(titulo, itens):
++        linhas = "".join(
++            f"<div><b>{e(r)}:</b> {e(v)}</div>" for r, v in itens if v
++        )
++        return f"<h2>{e(titulo)}</h2>{linhas}<hr>"
++
++    corpo = (
++        f"<h1>{e(d.get('clinica', NOME_CLINICA))}</h1><p class='c'><b>COMPROVANTE DE AGENDAMENTO</b></p><hr>"
++        f"<div><b>Comprovante n.:</b> {e(d['numero'])}</div><hr>"
++        + bloco("PACIENTE", [("Nome", d["paciente"]), ("CPF", d["cpf"]), ("Telefone", d["telefone"])])
++        + bloco("PROFISSIONAL", [("Nome", d["profissional"]), ("Registro", d["registro"]),
++                                 ("Especialidade", d["especialidade"])])
++        + bloco("CONSULTA", [("Data", d["data"]), ("Horário", f"{d['hora']} às {d['hora_fim']}"),
++                             ("Situação", d["situacao"]), ("Obs", d["observacoes"])])
++        + "<p class='c'>Chegue com 15 minutos de antecedência e guarde este comprovante.</p><hr>"
++        + f"<p class='c pequeno'>Emitido em {e(d['emitido_em'])}</p>"
++    )
++    return f"""<!DOCTYPE html>
++<html lang="pt-BR"><head><meta charset="utf-8">
++<title>Comprovante {e(d['numero'])}</title>
++<style>
++  /* O papel (80 ou 58 mm) é o da impressora escolhida; aqui só limitamos a largura útil. */
++  @page {{ margin: 2mm; }}
++  body {{ width: {largura_mm - 8}mm; margin: 0 auto; font-family: "Courier New", monospace;
++          font-size: {fonte}; color: #000; }}
++  h1 {{ font-size: 13pt; text-align: center; margin: 2mm 0; }}
++  h2 {{ font-size: {fonte}; margin: 1mm 0; }}
++  hr {{ border: 0; border-top: 1px dashed #000; margin: 2mm 0; }}
++  div, p {{ margin: 0.5mm 0; word-wrap: break-word; }}
++  .c {{ text-align: center; }}
++  .pequeno {{ font-size: 8pt; }}
++</style></head>
++<body onload="window.print()">{corpo}</body></html>
++"""
++
++
++def imprimir(id_consulta, largura_mm=80, clinica=NOME_CLINICA):
++    """Gera o comprovante e abre no navegador (com a janela de impressão).
++
++    Devolve o caminho do arquivo HTML criado.
++    """
++    dados = dados_do_comprovante(id_consulta, clinica)
++    pasta = Path(tempfile.gettempdir()) / "sistema_clinica_comprovantes"
++    pasta.mkdir(exist_ok=True)
++    arquivo = pasta / f"comprovante_{dados['numero']}.html"
++    arquivo.write_text(gerar_html(dados, largura_mm), encoding="utf-8")
++    if not webbrowser.open(arquivo.as_uri()):
++        raise ErroValidacao(f"Não foi possível abrir o navegador. Abra o arquivo: {arquivo}")
++    return arquivo
+diff --git a/services/consultas.py b/services/consultas.py
+index 0a54962..9aa32fe 100644
+--- a/services/consultas.py
++++ b/services/consultas.py
+@@ -187,7 +187,7 @@ def listar(busca="", situacao=None, data_iso=None, profissional_id=None, pacient
+     sql = """
+         SELECT c.id, c.paciente_id, c.profissional_id, c.data, c.hora_inicio, c.hora_fim,
+                c.situacao, c.motivo_cancelamento, c.observacoes,
+-               p.nome AS paciente_nome, p.cpf AS paciente_cpf,
++               p.nome AS paciente_nome, p.cpf AS paciente_cpf, p.telefone AS paciente_telefone,
+                pr.nome AS profissional_nome, pr.registro AS profissional_registro,
+                e.nome AS especialidade_nome
+         FROM consulta c
+@@ -241,7 +241,7 @@ def obter(id_consulta):
+     sql = """
+         SELECT c.id, c.paciente_id, c.profissional_id, c.data, c.hora_inicio, c.hora_fim,
+                c.situacao, c.motivo_cancelamento, c.observacoes,
+-               p.nome AS paciente_nome, p.cpf AS paciente_cpf,
++               p.nome AS paciente_nome, p.cpf AS paciente_cpf, p.telefone AS paciente_telefone,
+                pr.nome AS profissional_nome, pr.registro AS profissional_registro,
+                e.nome AS especialidade_nome
+         FROM consulta c
+diff --git a/tests/test_clinica.py b/tests/test_clinica.py
+index 94432c9..02bb73a 100644
+--- a/tests/test_clinica.py
++++ b/tests/test_clinica.py
+@@ -8,7 +8,7 @@ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ 
+ import database  # noqa: E402
+-from services import autenticacao, consultas, pacientes, profissionais  # noqa: E402
++from services import autenticacao, comprovante, consultas, pacientes, profissionais  # noqa: E402
+ from services.validacoes import (  # noqa: E402
+     ErroValidacao,
+     calcular_hora_fim,
+@@ -387,5 +387,51 @@ class TestConsultas(unittest.TestCase):
+         self.assertEqual(len(consultas.listar(busca="Beatriz")), 2)  # busca por nome continua valendo
+ 
+ 
++class TestComprovante(unittest.TestCase):
++    """Comprovante de agendamento para impressora térmica."""
++
++    def setUp(self):
++        self._pasta = tempfile.TemporaryDirectory()
++        database.DB_PATH = Path(self._pasta.name) / "comprovante.db"
++        database.criar_tabelas()
++        pac = pacientes.cadastrar("Maria Silva", CPF_OK, "25/03/1990", "86999990001")
++        prof = profissionais.cadastrar("Dra. Helena Duarte", "CRM-PI 2002", "Pediatria", "")
++        self.id_consulta = consultas.agendar(pac, prof, "01/01/2099", "09:30", "Retorno")
++
++    def tearDown(self):
++        self._pasta.cleanup()
++
++    def test_dados_e_texto_trazem_tudo(self):
++        d = comprovante.dados_do_comprovante(self.id_consulta)
++        texto = comprovante.gerar_texto(d, 80)
++        for esperado in ("Maria Silva", "529.***.***-25", "(86) 99999-0001", "Dra. Helena Duarte",
++                         "CRM-PI 2002", "Pediatria", "01/01/2099", "09:30 as 10:00", "Agendada"):
++            self.assertIn(esperado, texto)
++
++    def test_cpf_sai_mascarado(self):
++        d = comprovante.dados_do_comprovante(self.id_consulta)
++        self.assertEqual(d["cpf"], "529.***.***-25")
++        self.assertNotIn("982.247", comprovante.gerar_texto(d))
++        self.assertNotIn("982", comprovante.gerar_html(d).split("<body")[1])
++        self.assertEqual(comprovante.mascarar_cpf("123"), "***.***.***-**")
++
++    def test_texto_respeita_largura_da_bobina(self):
++        d = comprovante.dados_do_comprovante(self.id_consulta)
++        for mm, colunas in ((80, 42), (58, 32)):
++            for linha in comprovante.gerar_texto(d, mm).splitlines():
++                self.assertLessEqual(len(linha), colunas)
++
++    def test_html_tem_largura_da_bobina_e_escapa_texto(self):
++        d = comprovante.dados_do_comprovante(self.id_consulta)
++        d["observacoes"] = "<b>teste</b>"
++        pagina = comprovante.gerar_html(d, 58)
++        self.assertIn("width: 50mm", pagina)
++        self.assertIn("&lt;b&gt;teste&lt;/b&gt;", pagina)
++
++    def test_consulta_inexistente(self):
++        with self.assertRaises(ErroValidacao):
++            comprovante.dados_do_comprovante(9999)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+\ No newline at end of file
+diff --git a/ui/tela_consultas.py b/ui/tela_consultas.py
+index f74b223..70481bb 100644
+--- a/ui/tela_consultas.py
++++ b/ui/tela_consultas.py
+@@ -7,7 +7,7 @@ from tkinter import messagebox, simpledialog
+ 
+ import customtkinter as ctk
+ 
+-from services import consultas, pacientes, profissionais
++from services import comprovante, consultas, pacientes, profissionais
+ from services.validacoes import (
+     ErroValidacao,
+     formatar_cpf,
+@@ -139,6 +139,25 @@ class TelaConsultas(ctk.CTkFrame):
+         )
+         self.botao_cancelar.pack(side="left")
+ 
++        # Impressão do comprovante: o grupo só aparece quando uma consulta é selecionada.
++        self.var_papel = ctk.StringVar(value="80 mm")
++        self.grupo_comprovante = ctk.CTkFrame(self.cartao_form, fg_color="transparent")
++        componentes.botao(
++            self.grupo_comprovante, "Imprimir comprovante", self.imprimir_comprovante,
++            largura=190,
++        ).pack(side="left", padx=(0, 8))
++        ctk.CTkLabel(
++            self.grupo_comprovante, text="Papel:", font=tema.fonte(12, True),
++            text_color=tema.COR_TEXTO,
++        ).pack(side="left", padx=(6, 6))
++        ctk.CTkOptionMenu(
++            self.grupo_comprovante, values=["80 mm", "58 mm"], variable=self.var_papel,
++            width=90, height=38, corner_radius=tema.RAIO_BOTAO,
++            fg_color=tema.COR_CARTAO, text_color=tema.COR_TEXTO,
++            button_color=tema.COR_BORDA, button_hover_color=tema.COR_HOVER_SUAVE,
++            font=tema.fonte(12, True), dropdown_font=tema.fonte(12),
++        ).pack(side="left")
++
+     def _montar_lista(self):
+         cartao = componentes.cartao(self)
+         cartao.grid(row=2, column=0, sticky="nsew")
+@@ -303,6 +322,7 @@ class TelaConsultas(ctk.CTkFrame):
+         self.titulo_form.configure(
+             text=f"Editando consulta #{self.id_selecionado} ({self.situacao_selecionada})"
+         )
++        self.grupo_comprovante.pack(fill="x", padx=20, pady=(0, 18))  # mostra o botão de impressão
+ 
+         if self.situacao_selecionada == "Agendada":
+             self.botao_salvar.configure(state="normal", text="Salvar alterações")
+@@ -390,9 +410,22 @@ class TelaConsultas(ctk.CTkFrame):
+         self.limpar()
+         self.atualizar_lista()
+ 
++    def imprimir_comprovante(self):
++        """Abre o comprovante da consulta selecionada na janela de impressão."""
++        if self.id_selecionado is None:
++            return
++        largura = 58 if self.var_papel.get().startswith("58") else 80
++        try:
++            comprovante.imprimir(self.id_selecionado, largura, clinica=tema.NOME_PROGRAMA)
++        except ErroValidacao as erro:
++            messagebox.showwarning("Comprovante", str(erro))
++        except sqlite3.Error as erro:
++            messagebox.showerror("Erro no banco de dados", f"Não foi possível gerar: {erro}")
++
+     def limpar(self):
+         self.id_selecionado = None
+         self.situacao_selecionada = None
++        self.grupo_comprovante.pack_forget()  # esconde o botão de impressão
+         self.var_data.set("")
+         self.var_hora.set("")
+         self.var_obs.set("")
