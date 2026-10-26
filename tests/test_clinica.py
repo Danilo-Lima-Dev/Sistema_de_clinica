@@ -186,6 +186,98 @@ class TestAutenticacao(unittest.TestCase):
             autenticacao.cadastrar_usuario("Bia", "bia", "123")  # senha curta
 
 
+class TestSuperUsuario(unittest.TestCase):
+    def setUp(self):
+        self._pasta = tempfile.TemporaryDirectory()
+        database.DB_PATH = Path(self._pasta.name) / "super.db"
+        database.criar_tabelas()
+        autenticacao.criar_usuario_padrao()
+        autenticacao.criar_superusuario_padrao()
+        self.super = autenticacao.autenticar(autenticacao.SUPER_LOGIN, autenticacao.SUPER_SENHA)
+        self.comum = autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
+
+    def tearDown(self):
+        self._pasta.cleanup()
+
+    def test_superusuario_criado_uma_vez_e_com_perfil(self):
+        autenticacao.criar_superusuario_padrao()  # não duplica
+        self.assertTrue(self.super["superusuario"])
+        self.assertFalse(self.comum["superusuario"])  # o admin continua comum
+        ids = [u["id"] for u in autenticacao.listar_usuarios(self.super["id"])]
+        self.assertEqual(len(ids), 2)
+
+    def test_usuario_comum_nao_gerencia(self):
+        with self.assertRaises(ErroValidacao):
+            autenticacao.listar_usuarios(self.comum["id"])
+        with self.assertRaises(ErroValidacao):
+            autenticacao.cadastrar_usuario_por(self.comum["id"], "Ana", "ana", "segredo123")
+        with self.assertRaises(ErroValidacao):
+            autenticacao.atualizar_usuario(self.comum["id"], self.comum["id"], "X", "admin", superusuario=True)
+
+    def test_superusuario_cadastra_e_novo_usuario_entra(self):
+        autenticacao.cadastrar_usuario_por(self.super["id"], "Ana", "Ana", "segredo123")
+        self.assertFalse(autenticacao.autenticar("ana", "segredo123")["superusuario"])
+
+    def test_superusuario_troca_dados_e_senha(self):
+        autenticacao.atualizar_usuario(
+            self.super["id"], self.comum["id"], "Admin Novo", "admin2", senha="novasenha1"
+        )
+        usuario = autenticacao.autenticar("admin2", "novasenha1")
+        self.assertEqual(usuario["nome"], "Admin Novo")
+        with self.assertRaises(ErroValidacao):
+            autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
+
+    def test_senha_em_branco_mantem_a_atual(self):
+        autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", senha="")
+        autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
+
+    def test_troca_com_dados_invalidos(self):
+        with self.assertRaises(ErroValidacao):  # senha curta
+            autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "A", "admin", senha="123")
+        with self.assertRaises(ErroValidacao):  # login já usado
+            autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "A", "super")
+        with self.assertRaises(ErroValidacao):  # usuário inexistente
+            autenticacao.atualizar_usuario(self.super["id"], 999, "A", "zzz")
+
+    def test_nao_remove_o_ultimo_superusuario(self):
+        with self.assertRaises(ErroValidacao):  # se desativar
+            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "S", "super", ativo=False, superusuario=True)
+        with self.assertRaises(ErroValidacao):  # se deixar de ser super
+            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "S", "super", ativo=True, superusuario=False)
+        # com outro super ativo, já pode
+        autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", superusuario=True)
+        autenticacao.atualizar_usuario(self.comum["id"], self.super["id"], "S", "super", superusuario=False)
+
+    def test_usuario_desativado_nao_entra(self):
+        autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", ativo=False)
+        with self.assertRaises(ErroValidacao):
+            autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
+
+    def test_excluir_usuario(self):
+        autenticacao.excluir_usuario(self.super["id"], self.comum["id"])
+        with self.assertRaises(ErroValidacao):
+            autenticacao.autenticar("admin", autenticacao.SENHA_PADRAO)
+        self.assertEqual(len(autenticacao.listar_usuarios(self.super["id"])), 1)
+
+    def test_excluir_com_regras(self):
+        with self.assertRaises(ErroValidacao):  # usuário comum não exclui
+            autenticacao.excluir_usuario(self.comum["id"], self.super["id"])
+        with self.assertRaises(ErroValidacao):  # não exclui a si mesmo
+            autenticacao.excluir_usuario(self.super["id"], self.super["id"])
+        with self.assertRaises(ErroValidacao):  # inexistente
+            autenticacao.excluir_usuario(self.super["id"], 999)
+        self.assertEqual(len(autenticacao.listar_usuarios(self.super["id"])), 2)
+
+    def test_banco_antigo_ganha_a_coluna(self):
+        with database.transacao() as con:
+            con.executescript("DROP TABLE usuario; CREATE TABLE usuario (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                              "nome TEXT NOT NULL, login TEXT NOT NULL UNIQUE, senha_hash TEXT NOT NULL, "
+                              "ativo INTEGER NOT NULL DEFAULT 1);")
+        database.criar_tabelas()  # migra
+        autenticacao.criar_superusuario_padrao()
+        self.assertTrue(autenticacao.autenticar("super", autenticacao.SUPER_SENHA)["superusuario"])
+
+
 class TestBanco(unittest.TestCase):
     def test_persistencia_apos_reabrir(self):
         with tempfile.TemporaryDirectory() as pasta:

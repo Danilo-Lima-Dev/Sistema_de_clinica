@@ -7,7 +7,7 @@ Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
 
 | Tela | Situação |
 | --- | --- |
-| Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o usuário `admin` na primeira execução |
+| Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o `admin` e o super usuário `super` na primeira execução |
 | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
 | Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
 | Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada, cancelar e imprimir o comprovante de agendamento (bobina 80 mm ou 58 mm) |
@@ -43,12 +43,15 @@ junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
 
 - O login não diferencia maiúsculas de minúsculas; a senha deve ter pelo menos 6 caracteres.
 - Depois de 5 tentativas erradas na tela de login, o programa fecha.
-- Ainda não existe tela para cadastrar usuários nem função para trocar a senha de um usuário já criado.
-  Para cadastrar outro usuário, rode na pasta do projeto (trocando nome, login e senha):
-
-```bash
-python -c "import database; from services import autenticacao; database.criar_tabelas(); autenticacao.cadastrar_usuario('Maria Souza', 'maria', 'senha123')"
-```
+- Existem dois tipos de usuário: o **usuário comum** (usa pacientes, profissionais e consultas) e o
+  **super usuário**, que além disso vê o item **Usuários** no menu.
+- O super usuário padrão é criado automaticamente (se ainda não houver nenhum): **usuário `super`, senha `super123`**.
+  Troque essa senha no primeiro acesso, em Usuários.
+- Na tela **Usuários**, o super usuário cadastra novos usuários e, ao selecionar um da lista, altera nome, login,
+  perfil (super ou comum) e situação (ativo/inativo), ou troca a senha (senha em branco mantém a atual). Também pode **excluir** um usuário (com confirmação).
+- Regras: só um super usuário gerencia usuários (conferido no banco a cada ação); não é possível desativar nem excluir o próprio
+  usuário, nem deixar o sistema sem nenhum super usuário ativo.
+- Bancos antigos recebem a coluna `superusuario` automaticamente na próxima execução.
 
 ## Personalizar a aparência
 
@@ -78,6 +81,7 @@ python -m unittest discover -s tests -v
 | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
 | `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
 | `ui/tela_login.py` | Tela de login. |
+| `ui/tela_usuarios.py` | Tela "Usuários" (só para o super usuário): cadastrar, alterar e excluir usuários (nome, login, senha, perfil e situação). |
 | `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas com atualização automática. |
 | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
 | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |

@@ -20,6 +20,12 @@ TAMANHO_MINIMO_SENHA = 6
 USUARIO_PADRAO = "admin"
 SENHA_PADRAO = "admin123"
 
+# Super usuário criado automaticamente (se ainda não existir nenhum): é o único tipo
+# de usuário que cadastra e altera os outros. TROQUE A SENHA depois do primeiro acesso.
+SUPER_NOME = "Super Usuário"
+SUPER_LOGIN = "super"
+SUPER_SENHA = "super123"
+
 
 # ------------------------------------------------------------------ hash
 def gerar_hash(senha, salt=None):
@@ -42,23 +48,37 @@ def conferir_senha(senha, senha_hash):
 
 
 # --------------------------------------------------------------- usuários
-def cadastrar_usuario(nome, login, senha):
-    """Cria um usuário. Levanta ErroValidacao se algum dado for inválido."""
+def _validar_nome_login(nome, login):
+    """Limpa e confere nome e login. Devolve (nome, login)."""
     nome = (nome or "").strip()
     login = (login or "").strip().lower()  # login não diferencia maiúsculas
     if not nome:
         raise ErroValidacao("O nome é obrigatório.")
     if not login:
         raise ErroValidacao("O usuário é obrigatório.")
+    return nome, login
+
+
+def _validar_senha(senha):
     if len(senha or "") < TAMANHO_MINIMO_SENHA:
         raise ErroValidacao(
             f"A senha deve ter pelo menos {TAMANHO_MINIMO_SENHA} caracteres."
         )
+
+
+def cadastrar_usuario(nome, login, senha, superusuario=False):
+    """Cria um usuário. Levanta ErroValidacao se algum dado for inválido.
+
+    Esta função não confere permissão (serve para o script de linha de comando e para
+    os testes). A tela usa `cadastrar_usuario_por`, que só aceita um super usuário.
+    """
+    nome, login = _validar_nome_login(nome, login)
+    _validar_senha(senha)
     try:
         with database.transacao() as con:
             con.execute(
-                "INSERT INTO usuario (nome, login, senha_hash) VALUES (?, ?, ?)",
-                (nome, login, gerar_hash(senha)),
+                "INSERT INTO usuario (nome, login, senha_hash, superusuario) VALUES (?, ?, ?, ?)",
+                (nome, login, gerar_hash(senha), 1 if superusuario else 0),
             )
     except sqlite3.IntegrityError:
         raise ErroValidacao("Já existe um usuário com esse login.") from None
@@ -72,10 +92,108 @@ def criar_usuario_padrao():
         cadastrar_usuario("Administrador", USUARIO_PADRAO, SENHA_PADRAO)
 
 
+def criar_superusuario_padrao():
+    """Se ainda não existe nenhum super usuário, cria o padrão (login `super`)."""
+    with database.transacao() as con:
+        total = con.execute("SELECT COUNT(*) FROM usuario WHERE superusuario = 1").fetchone()[0]
+        login_ocupado = con.execute(
+            "SELECT 1 FROM usuario WHERE login = ?", (SUPER_LOGIN,)
+        ).fetchone()
+    if total == 0 and not login_ocupado:
+        cadastrar_usuario(SUPER_NOME, SUPER_LOGIN, SUPER_SENHA, superusuario=True)
+
+
+# ------------------------------------------------- gerência (só super usuário)
+def _exigir_superusuario(executor_id):
+    """Confere NO BANCO se quem pede ainda é um super usuário ativo."""
+    with database.transacao() as con:
+        linha = con.execute(
+            "SELECT superusuario, ativo FROM usuario WHERE id = ?", (executor_id,)
+        ).fetchone()
+    if linha is None or not linha["superusuario"] or not linha["ativo"]:
+        raise ErroValidacao("Somente um super usuário pode gerenciar usuários.")
+
+
+def listar_usuarios(executor_id):
+    """Lista todos os usuários (sem o hash da senha). Só para super usuário."""
+    _exigir_superusuario(executor_id)
+    with database.transacao() as con:
+        return con.execute(
+            "SELECT id, nome, login, ativo, superusuario FROM usuario ORDER BY nome COLLATE NOCASE"
+        ).fetchall()
+
+
+def cadastrar_usuario_por(executor_id, nome, login, senha, superusuario=False):
+    """Cadastra um usuário em nome de um super usuário."""
+    _exigir_superusuario(executor_id)
+    cadastrar_usuario(nome, login, senha, superusuario)
+
+
+def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True, superusuario=False):
+    """Altera nome, login, situação e perfil de um usuário; troca a senha se `senha` vier preenchida.
+
+    Senha em branco = mantém a senha atual. Só um super usuário pode usar.
+    """
+    _exigir_superusuario(executor_id)
+    nome, login = _validar_nome_login(nome, login)
+    if senha:
+        _validar_senha(senha)
+    ativo, superusuario = (1 if ativo else 0), (1 if superusuario else 0)
+
+    try:
+        with database.transacao() as con:
+            atual = con.execute(
+                "SELECT superusuario, ativo FROM usuario WHERE id = ?", (id_usuario,)
+            ).fetchone()
+            if atual is None:
+                raise ErroValidacao("Usuário não encontrado.")
+            if id_usuario == executor_id and not ativo:
+                raise ErroValidacao("Você não pode desativar o seu próprio usuário.")
+            era_super_ativo = atual["superusuario"] and atual["ativo"]
+            if era_super_ativo and not (superusuario and ativo):
+                restantes = con.execute(
+                    "SELECT COUNT(*) FROM usuario WHERE superusuario = 1 AND ativo = 1 AND id != ?",
+                    (id_usuario,),
+                ).fetchone()[0]
+                if restantes == 0:
+                    raise ErroValidacao(
+                        "Deve existir pelo menos um super usuário ativo no sistema."
+                    )
+            campos = "nome = ?, login = ?, ativo = ?, superusuario = ?"
+            valores = [nome, login, ativo, superusuario]
+            if senha:
+                campos += ", senha_hash = ?"
+                valores.append(gerar_hash(senha))
+            con.execute(f"UPDATE usuario SET {campos} WHERE id = ?", (*valores, id_usuario))
+    except sqlite3.IntegrityError:
+        raise ErroValidacao("Já existe um usuário com esse login.") from None
+
+
+def excluir_usuario(executor_id, id_usuario):
+    """Exclui um usuário de vez. Só um super usuário pode; ninguém exclui o próprio usuário."""
+    _exigir_superusuario(executor_id)
+    if id_usuario == executor_id:
+        raise ErroValidacao("Você não pode excluir o seu próprio usuário.")
+    with database.transacao() as con:
+        alvo = con.execute(
+            "SELECT superusuario, ativo FROM usuario WHERE id = ?", (id_usuario,)
+        ).fetchone()
+        if alvo is None:
+            raise ErroValidacao("Usuário não encontrado.")
+        if alvo["superusuario"] and alvo["ativo"]:
+            restantes = con.execute(
+                "SELECT COUNT(*) FROM usuario WHERE superusuario = 1 AND ativo = 1 AND id != ?",
+                (id_usuario,),
+            ).fetchone()[0]
+            if restantes == 0:
+                raise ErroValidacao("Deve existir pelo menos um super usuário ativo no sistema.")
+        con.execute("DELETE FROM usuario WHERE id = ?", (id_usuario,))
+
+
 def autenticar(login, senha):
     """Confere login e senha.
 
-    Devolve um dicionário com os dados do usuário (id, nome, login) se estiver
+    Devolve um dicionário com os dados do usuário (id, nome, login, superusuario) se estiver
     correto; senão levanta ErroValidacao. A mensagem é a mesma para "usuário não
     existe" e "senha errada", para não revelar quais logins existem.
     """
@@ -85,7 +203,7 @@ def autenticar(login, senha):
 
     with database.transacao() as con:
         linha = con.execute(
-            "SELECT id, nome, login, senha_hash, ativo FROM usuario WHERE login = ?",
+            "SELECT id, nome, login, senha_hash, ativo, superusuario FROM usuario WHERE login = ?",
             (login,),
         ).fetchone()
 
@@ -97,4 +215,7 @@ def autenticar(login, senha):
     if not linha["ativo"]:
         raise ErroValidacao("Este usuário está desativado.")
 
-    return {"id": linha["id"], "nome": linha["nome"], "login": linha["login"]}
+    return {
+        "id": linha["id"], "nome": linha["nome"], "login": linha["login"],
+        "superusuario": bool(linha["superusuario"]),
+    }

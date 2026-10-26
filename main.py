@@ -11,6 +11,7 @@ from ui.app import App
 def main():
     database.criar_tabelas()             # cria o banco na primeira execução
     autenticacao.criar_usuario_padrao()  # cria o "admin" se ainda não houver usuários
+    autenticacao.criar_superusuario_padrao()  # cria o "super" se ainda não houver super usuário
     App().mainloop()                     # a janela começa pela tela de login
 
 

@@ -16,13 +16,15 @@ from ui.tela_consultas import TelaConsultas
 from ui.tela_login import TelaLogin
 from ui.tela_pacientes import TelaPacientes
 from ui.tela_profissionais import TelaProfissionais
+from ui.tela_usuarios import TelaUsuarios
 
 
 class App(ctk.CTk):
     # Telas do sistema, na ordem em que aparecem no menu.
     # Cada tela tem o atributo NOME_MENU com o texto do cartão.
     TELAS = (TelaPacientes, TelaProfissionais, TelaConsultas)
-
+    # Telas extras que só o super usuário vê.
+    TELAS_SUPER = (TelaUsuarios,)
 
     def __init__(self):
         tema.aplicar_tema()
@@ -49,6 +51,12 @@ class App(ctk.CTk):
             "O sistema continua aberto; tente novamente.\n\n"
             f"Detalhe: {valor}",
         )
+
+    def _telas_do_usuario(self):
+        """Telas que o usuário logado pode abrir (o super usuário ganha a de Usuários)."""
+        if self.usuario and self.usuario.get("superusuario"):
+            return self.TELAS + self.TELAS_SUPER
+        return self.TELAS
 
     # ----------------------------------------------------- troca de telas
     def _novo_container(self):
@@ -115,8 +123,11 @@ class App(ctk.CTk):
         conteudo.grid_rowconfigure(0, weight=1)
 
         self.telas = {}
-        for classe in self.TELAS:
-            self.telas[classe] = classe(conteudo)
+        for classe in self._telas_do_usuario():
+            if classe is TelaUsuarios:  # precisa saber quem está logado
+                self.telas[classe] = classe(conteudo, self.usuario)
+            else:
+                self.telas[classe] = classe(conteudo)
         self._mostrar_tela(self.TELAS[0])
         self._centralizar()
 
@@ -177,7 +188,7 @@ class App(ctk.CTk):
             menu, text="MENU", font=tema.fonte(11, True),
             text_color=tema.COR_MENU_TEXTO, anchor="w",
         ).pack(fill="x", padx=22, pady=(0, 6))
-        for classe in self.TELAS:
+        for classe in self._telas_do_usuario():
             cartao = ctk.CTkButton(
                 menu, text=classe.NOME_MENU, anchor="w", height=52,
                 corner_radius=tema.RAIO_CARTAO, font=tema.fonte(14, True),

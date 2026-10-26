@@ -9,8 +9,8 @@ import customtkinter as ctk
 from tkinter import ttk
 
 # ------------------------------------------------------------------ textos
-NOME_PROGRAMA = "Sistema de Clínica"          # título da janela, menu e login
-SLOGAN = "Gestão de pacientes e consultas"    # frase abaixo do nome
+NOME_PROGRAMA = "Vitalis"          # título da janela, menu e login
+SLOGAN = "No centro de tudo, a sua vida"    # frase abaixo do nome
 
 # ------------------------------------------------------------------- modo
 MODO_INICIAL = "light"  # "light" (claro), "dark" (escuro) ou "system" (do Windows/macOS)

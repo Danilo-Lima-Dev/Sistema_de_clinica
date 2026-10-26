@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS usuario (
     nome       TEXT NOT NULL,
     login      TEXT NOT NULL UNIQUE,
     senha_hash TEXT NOT NULL,
-    ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1))
+    ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+    -- 1 = super usuário: pode cadastrar e alterar os outros usuários
+    superusuario INTEGER NOT NULL DEFAULT 0 CHECK (superusuario IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS paciente (
@@ -110,6 +112,7 @@ def criar_tabelas():
             "INSERT OR IGNORE INTO especialidade (nome) VALUES (?)",
             [(nome,) for nome in ESPECIALIDADES_INICIAIS],
         )
+    _migrar_usuario()
     # O índice fica em uma transação à parte: se um banco antigo já tiver dois
     # agendamentos conflitantes, o índice não é criado, mas o sistema abre normalmente
     # (a regra RN01 continua valendo pela verificação em services/consultas.py).
@@ -118,3 +121,14 @@ def criar_tabelas():
             con.execute(INDICE_CONFLITO_HORARIO)
     except sqlite3.IntegrityError:
         pass
+
+
+def _migrar_usuario():
+    """Bancos criados antes do super usuário não têm a coluna `superusuario`: adiciona."""
+    with transacao() as con:
+        colunas = [linha["name"] for linha in con.execute("PRAGMA table_info(usuario)")]
+        if "superusuario" not in colunas:
+            con.execute(
+                "ALTER TABLE usuario ADD COLUMN superusuario INTEGER NOT NULL DEFAULT 0 "
+                "CHECK (superusuario IN (0, 1))"
+            )
