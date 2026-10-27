@@ -18,6 +18,7 @@ from pathlib import Path
 from services import consultas
 from services.validacoes import (
     ErroValidacao,
+    brl,
     formatar_telefone,
     iso_para_data_br,
     somente_digitos,
@@ -54,6 +55,9 @@ def dados_do_comprovante(id_consulta, clinica=NOME_CLINICA):
         "hora": c["hora_inicio"],
         "hora_fim": c["hora_fim"],
         "situacao": c["situacao"],
+        # vem do registro financeiro da consulta: "Pago" ou "Aguardando pagamento"
+        "pagamento": c["pagamento_status"],
+        "valor": brl(c["valor_centavos"]),
         "observacoes": c["observacoes"] or "",
         "emitido_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
@@ -105,6 +109,8 @@ def gerar_texto(d, largura_mm=80):
     campo("Data", d["data"])
     campo("Horario", f"{d['hora']} as {d['hora_fim']}")
     campo("Situacao", d["situacao"])
+    campo("Valor", d["valor"])
+    campo("Pagamento", d["pagamento"].upper())
     campo("Obs", d["observacoes"])
     linhas.append(sep)
     linhas.extend(_quebrar("Chegue com 15 minutos de antecedencia e guarde este comprovante.", n))
@@ -131,7 +137,8 @@ def gerar_html(d, largura_mm=80):
         + bloco("PROFISSIONAL", [("Nome", d["profissional"]), ("Registro", d["registro"]),
                                  ("Especialidade", d["especialidade"])])
         + bloco("CONSULTA", [("Data", d["data"]), ("Horário", f"{d['hora']} às {d['hora_fim']}"),
-                             ("Situação", d["situacao"]), ("Obs", d["observacoes"])])
+                             ("Situação", d["situacao"]), ("Valor", d["valor"]),
+                             ("Pagamento", d["pagamento"].upper()), ("Obs", d["observacoes"])])
         + "<p class='c'>Chegue com 15 minutos de antecedência e guarde este comprovante.</p><hr>"
         + f"<p class='c pequeno'>Emitido em {e(d['emitido_em'])}</p>"
     )

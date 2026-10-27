@@ -2,7 +2,7 @@
 
 Regras aplicadas (numeração igual à do relatório, seção 3):
   RN02  nome, CPF (11 números) e data de nascimento são obrigatórios e validados
-  RN04  paciente com consultas vinculadas não pode ser excluído
+  RN04  paciente com consultas vinculadas não pode ser excluído (use "Desativar": exclusão lógica)
   RN05  data de nascimento em formato válido e não pode ser futura
   RN06  o CPF não pode se repetir no sistema
 """
@@ -11,12 +11,14 @@ from datetime import date
 
 import database
 from services.validacoes import (
+    MSG_EMAIL,
     ErroValidacao,
     cpf_valido,
     data_br_para_date,
     email_valido,
+    motivo_telefone_invalido,
+    normalizar,
     somente_digitos,
-    telefone_valido,
 )
 
 
@@ -46,12 +48,14 @@ def _validar(nome, cpf, nascimento, telefone, email):
         raise ErroValidacao("A data de nascimento não pode ser futura.")
 
     telefone = somente_digitos(telefone)
-    if telefone and not telefone_valido(telefone):
-        raise ErroValidacao("Telefone inválido. Digite o DDD e o número (10 ou 11 dígitos).")
+    if telefone:
+        motivo = motivo_telefone_invalido(telefone)
+        if motivo:
+            raise ErroValidacao(motivo)
 
     email = (email or "").strip()
     if email and not email_valido(email):
-        raise ErroValidacao("E-mail inválido. Exemplo: nome@exemplo.com")
+        raise ErroValidacao(MSG_EMAIL)
 
     return {
         "nome": nome,
@@ -104,26 +108,58 @@ def excluir(id_paciente):
         if total > 0:
             raise ErroValidacao(
                 f"Não é possível excluir: o paciente tem {total} consulta(s) vinculada(s). "
-                "O histórico de atendimentos é preservado."
+                "Para preservar o histórico, use 'Desativar' (o paciente sai das buscas "
+                "do agendamento, mas os dados continuam guardados)."
             )
         cursor = con.execute("DELETE FROM paciente WHERE id = ?", (id_paciente,))
         if cursor.rowcount == 0:
             raise ErroValidacao("Paciente não encontrado. Atualize a lista e tente de novo.")
 
 
-def listar(busca=""):
-    """Lista pacientes por ordem de nome. `busca` filtra por nome ou CPF."""
+def alternar_ativo(id_paciente):
+    """Desativa (exclusão lógica) ou reativa um paciente. Devolve a nova situação (1 ou 0)."""
+    with database.transacao() as con:
+        linha = con.execute("SELECT ativo FROM paciente WHERE id = ?", (id_paciente,)).fetchone()
+        if not linha:
+            raise ErroValidacao("Paciente não encontrado. Atualize a lista e tente de novo.")
+        novo = 0 if linha["ativo"] == 1 else 1
+        con.execute("UPDATE paciente SET ativo = ? WHERE id = ?", (novo, id_paciente))
+        return novo
+
+
+def obter(id_paciente):
+    with database.transacao() as con:
+        linha = con.execute("SELECT * FROM paciente WHERE id = ?", (id_paciente,)).fetchone()
+        return dict(linha) if linha else None
+
+
+def listar(busca="", incluir_inativos=True, limite=None, offset=0):
+    """Lista pacientes por ordem de nome.
+
+    `busca` filtra por nome (sem diferenciar maiúsculas nem acentos, aceita parte do nome),
+    CPF ou telefone. `incluir_inativos=False` esconde os desativados (usado no agendamento).
+    `limite`/`offset` fazem a paginação no banco, para bases grandes.
+    """
     busca = (busca or "").strip()
-    sql = "SELECT * FROM paciente"
-    parametros = []
+    filtros, parametros = [], []
     if busca:
-        condicoes = ["nome LIKE ?"]
-        parametros.append(f"%{busca}%")
+        condicoes = ["sem_acento(nome) LIKE ?"]
+        parametros.append(f"%{normalizar(busca)}%")
         digitos = somente_digitos(busca)
-        if digitos:  # permite buscar o CPF digitado com ou sem pontuação
+        if digitos:  # permite buscar CPF ou telefone digitado com ou sem pontuação
             condicoes.append("cpf LIKE ?")
             parametros.append(f"%{digitos}%")
-        sql += " WHERE " + " OR ".join(condicoes)
+            condicoes.append("telefone LIKE ?")
+            parametros.append(f"%{digitos}%")
+        filtros.append("(" + " OR ".join(condicoes) + ")")
+    if not incluir_inativos:
+        filtros.append("ativo = 1")
+    sql = "SELECT * FROM paciente"
+    if filtros:
+        sql += " WHERE " + " AND ".join(filtros)
     sql += " ORDER BY nome COLLATE NOCASE"
+    if limite is not None:
+        sql += " LIMIT ? OFFSET ?"
+        parametros.extend([int(limite), int(offset)])
     with database.transacao() as con:
         return [dict(linha) for linha in con.execute(sql, parametros)]

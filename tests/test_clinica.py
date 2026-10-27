@@ -59,7 +59,7 @@ class TestPacientes(unittest.TestCase):
         self._pasta.cleanup()
 
     def test_cadastrar_e_listar(self):
-        id_novo = pacientes.cadastrar("Maria Silva", CPF_OK, "25/03/1990", "11987654321", "m@x.com")
+        id_novo = pacientes.cadastrar("Maria Silva", CPF_OK, "25/03/1990", "11982341234", "m@x.com")
         lista = pacientes.listar()
         self.assertEqual(len(lista), 1)
         self.assertEqual(lista[0]["id"], id_novo)
@@ -318,7 +318,7 @@ class TestProfissionais(unittest.TestCase):
         self._pasta.cleanup()
 
     def test_cadastrar_e_listar(self):
-        id_m = profissionais.cadastrar("Dr. Roberto Carlos", "CRM/SP 123456", "Cardiologia", "11987654321")
+        id_m = profissionais.cadastrar("Dr. Roberto Carlos", "CRM/SP 123456", "Cardiologia", "11982341234")
         lista = profissionais.listar()
         self.assertEqual(len(lista), 1)
         self.assertEqual(lista[0]["id"], id_m)
@@ -370,7 +370,7 @@ class TestProfissionais(unittest.TestCase):
 
         id_com = profissionais.cadastrar("Dr. Com Consulta", "CRM 666", "Cardiologia")
         id_pac = pacientes.cadastrar("Paciente Teste", CPF_OK, "01/01/1990")
-        consultas.agendar(id_pac, id_com, "15/12/2030", "14:00")
+        consultas.agendar(id_pac, id_com, "16/12/2030", "14:00")
         with self.assertRaises(ErroValidacao):  # RN04
             profissionais.excluir(id_com)
         self.assertEqual(len(profissionais.listar()), 1)
@@ -438,9 +438,9 @@ class TestConsultas(unittest.TestCase):
 
     def test_remarcar_alterar(self):
         id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
-        consultas.alterar_dados(id_c, self.id_paciente, self.id_prof, "21/12/2030", "15:00", "Remarcado")
+        consultas.alterar_dados(id_c, self.id_paciente, self.id_prof, "23/12/2030", "15:00", "Remarcado")
         obtida = consultas.obter(id_c)
-        self.assertEqual(obtida["data"], "2030-12-21")
+        self.assertEqual(obtida["data"], "2030-12-23")
         self.assertEqual(obtida["hora_inicio"], "15:00")
         self.assertEqual(obtida["observacoes"], "Remarcado")
 
@@ -491,7 +491,7 @@ class TestConsultas(unittest.TestCase):
     def test_busca_por_data(self):
         """RF06: digitar uma data DD/MM/AAAA na busca encontra as consultas daquele dia."""
         consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
-        consultas.agendar(self.id_paciente, self.id_prof, "21/12/2030", "10:00")
+        consultas.agendar(self.id_paciente, self.id_prof, "23/12/2030", "10:00")
         self.assertEqual(len(consultas.listar(busca="20/12/2030")), 1)
         self.assertEqual(len(consultas.listar(busca="22/12/2030")), 0)
         self.assertEqual(len(consultas.listar(busca="Beatriz")), 2)  # busca por nome continua valendo

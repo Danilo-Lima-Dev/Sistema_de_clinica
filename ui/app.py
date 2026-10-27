@@ -12,19 +12,25 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from ui import tema
+from ui.tela_agenda import TelaAgenda
 from ui.tela_consultas import TelaConsultas
+from ui.tela_especialidades import TelaEspecialidades
+from ui.tela_financeiro import TelaFinanceiro
 from ui.tela_login import TelaLogin
 from ui.tela_pacientes import TelaPacientes
 from ui.tela_profissionais import TelaProfissionais
+from ui.tela_prontuario import TelaProntuario
 from ui.tela_usuarios import TelaUsuarios
 
 
 class App(ctk.CTk):
     # Telas do sistema, na ordem em que aparecem no menu.
     # Cada tela tem o atributo NOME_MENU com o texto do cartão.
-    TELAS = (TelaPacientes, TelaProfissionais, TelaConsultas)
-    # Telas extras que só o super usuário vê.
-    TELAS_SUPER = (TelaUsuarios,)
+    TELAS = (
+        TelaPacientes, TelaProfissionais, TelaEspecialidades, TelaAgenda, TelaConsultas,
+    )
+    # Telas extras que só o super usuário vê (o back-end confere a permissão de novo).
+    TELAS_SUPER = (TelaFinanceiro, TelaProntuario, TelaUsuarios)
 
     def __init__(self):
         tema.aplicar_tema()
@@ -124,7 +130,7 @@ class App(ctk.CTk):
 
         self.telas = {}
         for classe in self._telas_do_usuario():
-            if classe is TelaUsuarios:  # precisa saber quem está logado
+            if getattr(classe, "PRECISA_USUARIO", False):  # precisa saber quem está logado
                 self.telas[classe] = classe(conteudo, self.usuario)
             else:
                 self.telas[classe] = classe(conteudo)

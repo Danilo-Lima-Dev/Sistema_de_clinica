@@ -16,6 +16,7 @@ from ui import componentes, tema
 
 class TelaUsuarios(ctk.CTkFrame):
     NOME_MENU = "Usuários"
+    PRECISA_USUARIO = True  # o App entrega o usuário logado
     COLUNAS = (
         ("id", "ID", 50),
         ("nome", "Nome", 240),

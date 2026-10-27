@@ -9,8 +9,9 @@ import customtkinter as ctk
 from tkinter import ttk
 
 # ------------------------------------------------------------------ textos
-NOME_PROGRAMA = "Vitalis"          # título da janela, menu e login
-SLOGAN = "No centro de tudo, a sua vida"    # frase abaixo do nome
+NOME_PROGRAMA = "Sistema de Clínica"          # título da janela, menu e login
+SLOGAN = "Gestão de pacientes e consultas"    # frase abaixo do nome
+LOCAL_EMISSAO = "Cidade - UF"                 # local que sai no atestado médico (ex.: "Teresina - PI")
 
 # ------------------------------------------------------------------- modo
 MODO_INICIAL = "light"  # "light" (claro), "dark" (escuro) ou "system" (do Windows/macOS)
@@ -33,6 +34,12 @@ COR_TEXTO_SUAVE = ("#64748b", "#94a3b8")       # dicas e textos secundários
 
 COR_PERIGO = ("#dc2626", "#ef4444")            # excluir / mensagens de erro
 COR_PERIGO_HOVER = ("#b91c1c", "#dc2626")
+
+# Estados dos horários da agenda do médico
+COR_SLOT_DISPONIVEL = ("#0f766e", "#14b8a6")     # disponível (verde-água)
+COR_SLOT_RESERVADO = ("#d97706", "#f59e0b")      # reservado (laranja)
+COR_SLOT_INDISPONIVEL = ("#cbd5e1", "#334155")   # indisponível (cinza)
+COR_SLOT_INDISPONIVEL_TEXTO = ("#475569", "#94a3b8")
 
 COR_AVISO_FUNDO = ("#fef3c7", "#3b2a0a")       # faixa de aviso (protótipos)
 COR_AVISO_TEXTO = ("#92400e", "#fcd34d")
@@ -73,6 +80,11 @@ def alternar_modo():
     """Troca entre claro e escuro e reestiliza as tabelas."""
     ctk.set_appearance_mode("light" if modo_escuro() else "dark")
     estilizar_tabela()
+
+
+def cor(par):
+    """Escolhe, de um par (claro, escuro), a cor do modo atual (para widgets que não são do CustomTkinter)."""
+    return _cor(par)
 
 
 def _cor(par):

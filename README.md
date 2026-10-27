@@ -10,6 +10,9 @@ Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
 | Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o `admin` e o super usuário `super` na primeira execução |
 | Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
 | Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
+| Especialidades | Funcionando: cadastrar, valor da consulta (só super usuário), buscar em tempo real e excluir (se não houver vínculos) |
+| Agenda | Funcionando: horários do médico em 3 estados (disponível, reservado, indisponível), bloqueio de horário/dia |
+| Financeiro | Só super usuário: valores, pagamentos, painel recebido/pendente e histórico |
 | Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada, cancelar e imprimir o comprovante de agendamento (bobina 80 mm ou 58 mm) |
 
 O banco é criado com as 5 tabelas do modelo (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`)
@@ -153,3 +156,18 @@ mas não passa pela tela de login. Para abri-la, na pasta do projeto:
 ```bash
 python -c "from cli.app import executar; executar()"
 ```
+
+## Novidades (requisitos de out/2026)
+
+- **Agenda** (`services/agenda.py`, `ui/tela_agenda.py`): expediente padrão 08:00–18:00, segunda a sexta, horários de 30 min (edite as constantes no topo de `services/agenda.py`). Horário indisponível não aceita agendamento.
+- **Valor por especialidade**: coluna `valor_consulta` (em centavos). Só o super usuário altera; conferido no back-end.
+- **Financeiro** (`services/financeiro.py`, `ui/tela_financeiro.py`): pagamento, painel, filtros e histórico (quem e quando).
+- **Confirmação só após pagamento**: a consulta nasce *Agendada* + *Aguardando pagamento*; `consultas.confirmar()` e um gatilho no banco recusam confirmar sem pagamento.
+- **Comprovante** agora mostra valor e status do pagamento.
+- **Atestado médico** (`services/atestado.py`): paciente e médico automáticos; dias e CID digitados; local padrão em `ui/tema.py` (`LOCAL_EMISSAO`).
+- **Validações** de e-mail e telefone (máscara `(86) 99999-9999`, DDD existente, bloqueio de números repetidos/sequenciais, biblioteca `phonenumbers`).
+- **Exclusões seguras**: especialidade com médicos/consultas não exclui; paciente com consultas é *desativado* (exclusão lógica) e some do agendamento.
+- **Buscas** em tempo real, sem acento e parciais, com "Nenhum resultado encontrado" e "Limpar busca"; no agendamento há autocompletar (10 por vez) e atalho para cadastrar paciente.
+- Bancos antigos são migrados automaticamente na primeira execução.
+- **Receituário médico** (`services/receituario.py`): botão *Gerar receituário* na tela Consultas; dados do paciente e do médico automáticos, prescrição digitada, impressão em A4.
+- **Documentos salvos** (`services/documentos.py`, `ui/tela_prontuario.py`): atestados e receituários emitidos ficam no banco por paciente; só o super usuário vê (menu *Prontuário*) e reimprime.

@@ -10,27 +10,39 @@ Regras aplicadas (ver documento de requisitos):
   RN02  campos obrigatórios validados antes da gravação
   RN05  não agendar consultas em data e hora passadas
   RN07  consultas não são excluídas, mas canceladas para manter o histórico
+
+Regras novas:
+  * horário indisponível (fora do expediente ou bloqueado) não aceita agendamento (services/agenda.py);
+  * paciente desativado não pode ser agendado;
+  * a consulta nasce como 'Agendada' + 'Aguardando pagamento', com o valor da especialidade;
+  * só vira 'Confirmada' depois que o pagamento é registrado como 'Pago' (conferido aqui e no banco).
 """
 import sqlite3
 
 import database
+from services import agenda
 from services.validacoes import (
     ErroValidacao,
     calcular_hora_fim,
     data_br_para_date,
     hora_valida,
+    normalizar,
     validar_data_hora_futura,
 )
 
 
 def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoes="",
-             ignorar_id_consulta=None, validar_futuro=True):
-    """Valida os campos de agendamento e checa conflito de horários (RN01, RN05)."""
+             ignorar_id_consulta=None, validar_futuro=True, checar_paciente_ativo=True):
+    """Valida os campos de agendamento e checa agenda e conflito de horários (RN01, RN05)."""
     if not paciente_id:
         raise ErroValidacao("Selecione um paciente para a consulta.")
-    paciente = con.execute("SELECT id FROM paciente WHERE id = ?", (paciente_id,)).fetchone()
+    paciente = con.execute("SELECT id, ativo FROM paciente WHERE id = ?", (paciente_id,)).fetchone()
     if not paciente:
         raise ErroValidacao("Paciente selecionado não foi encontrado no sistema.")
+    if checar_paciente_ativo and not paciente["ativo"]:
+        raise ErroValidacao(
+            "Este paciente está desativado e não pode ser agendado. Reative o cadastro dele."
+        )
 
     if not profissional_id:
         raise ErroValidacao("Selecione um profissional para a consulta.")
@@ -51,6 +63,11 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
         validar_data_hora_futura(data_br, hora_inicio)
 
     hora_fim = calcular_hora_fim(hora_inicio, 30)
+
+    # Horário indisponível (fora do expediente, folga ou bloqueio) não aceita agendamento.
+    motivo = agenda.motivo_indisponivel(con, profissional_id, data_iso, hora_inicio, hora_fim)
+    if motivo:
+        raise ErroValidacao(f"Horário indisponível: {motivo}. Escolha um horário disponível.")
 
     # RN01: Prevenção de conflito de horários para o mesmo profissional.
     # Consultas com situação 'Cancelada' não bloqueiam o horário.
@@ -91,6 +108,15 @@ def _erro_de_conflito(erro):
     return None
 
 
+def _valor_da_especialidade(con, profissional_id):
+    linha = con.execute(
+        "SELECT e.valor_consulta FROM profissional p "
+        "JOIN especialidade e ON p.especialidade_id = e.id WHERE p.id = ?",
+        (profissional_id,),
+    ).fetchone()
+    return linha["valor_consulta"] if linha else 0
+
+
 def agendar(paciente_id, profissional_id, data_br, hora_inicio, observacoes="", validar_futuro=True):
     """Realiza o agendamento de uma nova consulta (RF05)."""
     try:
@@ -100,11 +126,13 @@ def agendar(paciente_id, profissional_id, data_br, hora_inicio, observacoes="", 
                 observacoes=observacoes, validar_futuro=validar_futuro,
             )
             dados["situacao"] = "Agendada"
+            # Nasce 'Aguardando pagamento', com o valor atual da especialidade do médico.
+            dados["valor_centavos"] = _valor_da_especialidade(con, profissional_id)
             cursor = con.execute(
                 "INSERT INTO consulta (paciente_id, profissional_id, data, hora_inicio, "
-                "hora_fim, situacao, observacoes) "
+                "hora_fim, situacao, observacoes, valor_centavos, pagamento_status) "
                 "VALUES (:paciente_id, :profissional_id, :data, :hora_inicio, "
-                ":hora_fim, :situacao, :observacoes)",
+                ":hora_fim, :situacao, :observacoes, :valor_centavos, 'Aguardando pagamento')",
                 dados,
             )
             return cursor.lastrowid
@@ -120,7 +148,10 @@ def alterar_dados(id_consulta, paciente_id, profissional_id, data_br, hora_inici
     """Altera dados de uma consulta agendada (remarcar, trocar paciente ou médico) (RF07)."""
     try:
         with database.transacao() as con:
-            atual = con.execute("SELECT situacao FROM consulta WHERE id = ?", (id_consulta,)).fetchone()
+            atual = con.execute(
+                "SELECT situacao, paciente_id, profissional_id, pagamento_status "
+                "FROM consulta WHERE id = ?", (id_consulta,),
+            ).fetchone()
             if not atual:
                 raise ErroValidacao("Consulta não encontrada. Atualize a lista e tente de novo.")
             if atual["situacao"] == "Cancelada":
@@ -132,6 +163,8 @@ def alterar_dados(id_consulta, paciente_id, profissional_id, data_br, hora_inici
                 con, paciente_id, profissional_id, data_br, hora_inicio,
                 observacoes=observacoes, ignorar_id_consulta=id_consulta,
                 validar_futuro=validar_futuro,
+                # só barra paciente desativado se o paciente da consulta foi TROCADO
+                checar_paciente_ativo=(paciente_id != atual["paciente_id"]),
             )
             dados["id"] = id_consulta
             con.execute(
@@ -140,6 +173,12 @@ def alterar_dados(id_consulta, paciente_id, profissional_id, data_br, hora_inici
                 "WHERE id = :id",
                 dados,
             )
+            # Trocou de médico e a consulta ainda não foi paga: usa o valor da nova especialidade.
+            if profissional_id != atual["profissional_id"] and atual["pagamento_status"] != "Pago":
+                con.execute(
+                    "UPDATE consulta SET valor_centavos = ? WHERE id = ?",
+                    (_valor_da_especialidade(con, profissional_id), id_consulta),
+                )
     except sqlite3.IntegrityError as erro:
         amigavel = _erro_de_conflito(erro)
         if amigavel:
@@ -165,6 +204,32 @@ def cancelar(id_consulta, motivo_cancelamento=""):
         )
 
 
+def confirmar(id_consulta):
+    """Confirma a consulta. SÓ é permitido se o pagamento estiver registrado como 'Pago'.
+
+    A regra vale aqui (back-end) e também no banco (gatilho `tg_confirmar_so_pago_update`),
+    então não depende de a tela esconder ou desabilitar o botão.
+    """
+    with database.transacao() as con:
+        atual = con.execute(
+            "SELECT situacao, pagamento_status FROM consulta WHERE id = ?", (id_consulta,)
+        ).fetchone()
+        if not atual:
+            raise ErroValidacao("Consulta não encontrada.")
+        if atual["situacao"] == "Confirmada":
+            raise ErroValidacao("Esta consulta já está confirmada.")
+        if atual["situacao"] == "Cancelada":
+            raise ErroValidacao("Uma consulta cancelada não pode ser confirmada.")
+        if atual["situacao"] == "Realizada":
+            raise ErroValidacao("Esta consulta já foi realizada.")
+        if atual["pagamento_status"] != "Pago":
+            raise ErroValidacao(
+                "Não é possível confirmar: o pagamento ainda não foi registrado "
+                "(Aguardando pagamento). O super usuário registra o pagamento no módulo Financeiro."
+            )
+        con.execute("UPDATE consulta SET situacao = 'Confirmada' WHERE id = ?", (id_consulta,))
+
+
 def marcar_realizada(id_consulta):
     """Marca uma consulta agendada como realizada (RF09)."""
     with database.transacao() as con:
@@ -188,7 +253,9 @@ def listar(busca="", situacao=None, data_iso=None, profissional_id=None, pacient
     sql = """
         SELECT c.id, c.paciente_id, c.profissional_id, c.data, c.hora_inicio, c.hora_fim,
                c.situacao, c.motivo_cancelamento, c.observacoes,
+               c.valor_centavos, c.pagamento_status, c.pago_em,
                p.nome AS paciente_nome, p.cpf AS paciente_cpf, p.telefone AS paciente_telefone,
+               p.data_nascimento AS paciente_nascimento,
                pr.nome AS profissional_nome, pr.registro AS profissional_registro,
                e.nome AS especialidade_nome
         FROM consulta c
@@ -201,8 +268,12 @@ def listar(busca="", situacao=None, data_iso=None, profissional_id=None, pacient
 
     if busca:
         # RF06: a busca vale para paciente, profissional, especialidade e observações...
-        condicoes = ["p.nome LIKE ?", "pr.nome LIKE ?", "e.nome LIKE ?", "c.observacoes LIKE ?"]
-        valores = [f"%{busca}%"] * 4
+        # (sem_acento: ignora maiúsculas e acentos, "joao" encontra "João")
+        condicoes = [
+            "sem_acento(p.nome) LIKE ?", "sem_acento(pr.nome) LIKE ?",
+            "sem_acento(e.nome) LIKE ?", "sem_acento(c.observacoes) LIKE ?",
+        ]
+        valores = [f"%{normalizar(busca)}%"] * 4
         # ...e também para a data, quando o texto digitado for uma data DD/MM/AAAA válida.
         try:
             condicoes.append("c.data = ?")
@@ -242,7 +313,9 @@ def obter(id_consulta):
     sql = """
         SELECT c.id, c.paciente_id, c.profissional_id, c.data, c.hora_inicio, c.hora_fim,
                c.situacao, c.motivo_cancelamento, c.observacoes,
+               c.valor_centavos, c.pagamento_status, c.pago_em,
                p.nome AS paciente_nome, p.cpf AS paciente_cpf, p.telefone AS paciente_telefone,
+               p.data_nascimento AS paciente_nascimento,
                pr.nome AS profissional_nome, pr.registro AS profissional_registro,
                e.nome AS especialidade_nome
         FROM consulta c

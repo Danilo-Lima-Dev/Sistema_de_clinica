@@ -8,7 +8,13 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from services import profissionais
-from services.validacoes import ErroValidacao, formatar_telefone, somente_digitos
+from services.validacoes import (
+    ErroValidacao,
+    formatar_telefone,
+    mascara_telefone,
+    motivo_telefone_invalido,
+    somente_digitos,
+)
 from ui import componentes, tema
 
 
@@ -88,12 +94,14 @@ class TelaProfissionais(ctk.CTkFrame):
         bloco_esp.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 8), pady=(0, 12))
 
         bloco_tel, self.entrada_telefone = componentes.campo_texto(
-            grade, "Telefone", self.var_telefone, dica="com DDD"
+            grade, "Telefone", self.var_telefone, dica="(86) 99999-9999"
         )
         bloco_tel.grid(row=1, column=2, sticky="ew", padx=(8, 0), pady=(0, 12))
 
-        aplicar_mascara(
-            self.var_telefone, lambda t: somente_digitos(t)[:11], self.entrada_telefone
+        aplicar_mascara(self.var_telefone, mascara_telefone, self.entrada_telefone)
+        self.validar_telefone = componentes.anexar_validacao(
+            bloco_tel, self.entrada_telefone, self.var_telefone,
+            lambda t: motivo_telefone_invalido(t) if somente_digitos(t) else None,
         )
 
         botoes = ctk.CTkFrame(self.cartao_form, fg_color="transparent")
@@ -122,21 +130,10 @@ class TelaProfissionais(ctk.CTkFrame):
 
         busca = ctk.CTkFrame(cartao, fg_color="transparent")
         busca.grid(row=0, column=0, sticky="ew", padx=20, pady=(18, 10))
-        ctk.CTkLabel(
-            busca, text="Buscar por nome ou especialidade:", font=tema.fonte(12, True),
-            text_color=tema.COR_TEXTO,
-        ).pack(side="left", padx=(0, 10))
-        entrada = ctk.CTkEntry(
-            busca, textvariable=self.var_busca, width=280, height=38,
-            corner_radius=tema.RAIO_BOTAO, border_color=tema.COR_BORDA,
-            fg_color=tema.COR_CARTAO, text_color=tema.COR_TEXTO, font=tema.fonte(13),
+        quadro_busca, _entrada = componentes.barra_busca(
+            busca, "Buscar por nome ou especialidade:", self.var_busca, self.atualizar_lista
         )
-        entrada.pack(side="left")
-        entrada.bind("<Return>", lambda _e: self.buscar())
-        componentes.botao(busca, "Buscar", self.buscar, largura=100).pack(side="left", padx=10)
-        componentes.botao(
-            busca, "Mostrar todos", self.mostrar_todos, estilo="secundario"
-        ).pack(side="left")
+        quadro_busca.pack(side="left")
 
         quadro, self.tabela = componentes.criar_tabela(cartao, self.COLUNAS, altura=6)
         quadro.grid(row=1, column=0, sticky="nsew", padx=20)
@@ -187,7 +184,9 @@ class TelaProfissionais(ctk.CTkFrame):
                     situacao,
                 ),
             )
-        self.rotulo_total.configure(text=f"{len(lista)} profissional(is) listado(s).")
+        self.rotulo_total.configure(
+            text=componentes.texto_total(len(lista), self.var_busca.get(), "profissional(is)")
+        )
 
     def _ao_selecionar(self, _evento):
         selecionados = self.tabela.selection()
@@ -213,6 +212,11 @@ class TelaProfissionais(ctk.CTkFrame):
 
     # ------------------------------------------------------------ ações
     def salvar(self):
+        if not self.validar_telefone():  # erro aparece abaixo do campo; o back-end confere de novo
+            messagebox.showwarning(
+                "Verifique os dados", "Corrija os campos destacados em vermelho antes de salvar."
+            )
+            return
         dados = (
             self.var_nome.get(),
             self.var_registro.get(),
@@ -257,7 +261,10 @@ class TelaProfissionais(ctk.CTkFrame):
         if self.id_selecionado is None:
             return
         nome = self.var_nome.get()
-        if not messagebox.askyesno("Confirmar exclusão", f"Deseja excluir o cadastro de '{nome}'?"):
+        if not messagebox.askyesno(
+            "Confirmar exclusão",
+            f"Tem certeza que deseja excluir o cadastro de '{nome}'?\nEsta ação não pode ser desfeita.",
+        ):
             return
         try:
             profissionais.excluir(self.id_selecionado)
@@ -283,10 +290,3 @@ class TelaProfissionais(ctk.CTkFrame):
         self.botao_excluir.configure(state="disabled")
         self.botao_inativar.configure(state="disabled", text="Inativar")
         self.entrada_nome.focus_set()
-
-    def buscar(self):
-        self.atualizar_lista()
-
-    def mostrar_todos(self):
-        self.var_busca.set("")
-        self.atualizar_lista()

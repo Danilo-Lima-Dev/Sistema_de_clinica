@@ -10,7 +10,12 @@ Regras aplicadas (ver documento de requisitos):
 import sqlite3
 
 import database
-from services.validacoes import ErroValidacao, somente_digitos, telefone_valido
+from services.validacoes import (
+    ErroValidacao,
+    motivo_telefone_invalido,
+    normalizar,
+    somente_digitos,
+)
 
 
 def listar_especialidades():
@@ -53,8 +58,10 @@ def _validar(con, nome, registro, especialidade, telefone=""):
     esp_id = _resolver_especialidade_id(con, especialidade)
 
     telefone = somente_digitos(telefone)
-    if telefone and not telefone_valido(telefone):
-        raise ErroValidacao("Telefone inválido. Digite o DDD e o número (10 ou 11 dígitos).")
+    if telefone:
+        motivo = motivo_telefone_invalido(telefone)
+        if motivo:
+            raise ErroValidacao(motivo)
 
     return {
         "nome": nome,
@@ -132,15 +139,17 @@ def excluir(id_profissional):
             raise ErroValidacao("Profissional não encontrado. Atualize a lista e tente de novo.")
 
 
-def listar(busca="", apenas_ativos=False):
+def listar(busca="", apenas_ativos=False, limite=None, offset=0):
     """Lista profissionais em ordem alfabética.
 
-    RF04: A busca pesquisa pelo nome do profissional ou pelo nome da especialidade.
+    RF04: A busca pesquisa pelo nome do profissional, pelo registro ou pelo nome da
+    especialidade, sem diferenciar maiúsculas nem acentos e aceitando parte do texto.
+    `limite`/`offset` fazem a paginação no banco, para bases grandes.
     """
     busca = (busca or "").strip()
     sql = """
         SELECT p.id, p.nome, p.registro, p.especialidade_id,
-               e.nome AS especialidade, p.telefone, p.ativo
+               e.nome AS especialidade, e.valor_consulta, p.telefone, p.ativo
         FROM profissional p
         JOIN especialidade e ON p.especialidade_id = e.id
     """
@@ -148,8 +157,10 @@ def listar(busca="", apenas_ativos=False):
     parametros = []
 
     if busca:
-        filtros.append("(p.nome LIKE ? OR p.registro LIKE ? OR e.nome LIKE ?)")
-        parametros.extend([f"%{busca}%", f"%{busca}%", f"%{busca}%"])
+        filtros.append(
+            "(sem_acento(p.nome) LIKE ? OR sem_acento(p.registro) LIKE ? OR sem_acento(e.nome) LIKE ?)"
+        )
+        parametros.extend([f"%{normalizar(busca)}%"] * 3)
 
     if apenas_ativos:
         filtros.append("p.ativo = 1")
@@ -158,6 +169,9 @@ def listar(busca="", apenas_ativos=False):
         sql += " WHERE " + " AND ".join(filtros)
 
     sql += " ORDER BY p.nome COLLATE NOCASE"
+    if limite is not None:
+        sql += " LIMIT ? OFFSET ?"
+        parametros.extend([int(limite), int(offset)])
 
     with database.transacao() as con:
         return [dict(linha) for linha in con.execute(sql, parametros)]
@@ -167,7 +181,7 @@ def obter(id_profissional):
     """Retorna os dados completos de um único profissional."""
     sql = """
         SELECT p.id, p.nome, p.registro, p.especialidade_id,
-               e.nome AS especialidade, p.telefone, p.ativo
+               e.nome AS especialidade, e.valor_consulta, p.telefone, p.ativo
         FROM profissional p
         JOIN especialidade e ON p.especialidade_id = e.id
         WHERE p.id = ?

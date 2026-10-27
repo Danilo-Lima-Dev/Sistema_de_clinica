@@ -104,14 +104,22 @@ def criar_superusuario_padrao():
 
 
 # ------------------------------------------------- gerência (só super usuário)
-def _exigir_superusuario(executor_id):
-    """Confere NO BANCO se quem pede ainda é um super usuário ativo."""
+def exigir_superusuario(executor_id, mensagem="Somente um super usuário pode gerenciar usuários."):
+    """Confere NO BANCO se quem pede ainda é um super usuário ativo (senão levanta ErroValidacao).
+
+    Usada também pelo financeiro e pelos valores das especialidades: a permissão é conferida
+    aqui, no back-end, e não só escondendo botões na tela.
+    """
     with database.transacao() as con:
         linha = con.execute(
             "SELECT superusuario, ativo FROM usuario WHERE id = ?", (executor_id,)
         ).fetchone()
     if linha is None or not linha["superusuario"] or not linha["ativo"]:
-        raise ErroValidacao("Somente um super usuário pode gerenciar usuários.")
+        raise ErroValidacao(mensagem)
+
+
+def _exigir_superusuario(executor_id):
+    exigir_superusuario(executor_id)
 
 
 def listar_usuarios(executor_id):
