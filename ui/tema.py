@@ -11,7 +11,7 @@ from tkinter import ttk
 # ------------------------------------------------------------------ textos
 NOME_PROGRAMA = "Sistema de Clínica"          # título da janela, menu e login
 SLOGAN = "Gestão de pacientes e consultas"    # frase abaixo do nome
-LOCAL_EMISSAO = "Cidade - UF"                 # local que sai no atestado médico (ex.: "Teresina - PI")
+LOCAL_EMISSAO = "Teresina - PI"                # local que sai no atestado médico (ex.: "Teresina - PI")
 
 # ------------------------------------------------------------------- modo
 MODO_INICIAL = "light"  # "light" (claro), "dark" (escuro) ou "system" (do Windows/macOS)

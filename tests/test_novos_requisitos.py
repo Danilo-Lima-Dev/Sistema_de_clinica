@@ -22,6 +22,15 @@ from services.validacoes import (  # noqa: E402
 CPF_1, CPF_2 = "52998224725", "11144477735"
 
 
+def cpf_valido_de(base9):
+    """Completa 9 dígitos com os dois dígitos verificadores (CPF de teste válido)."""
+    digitos = [int(c) for c in base9]
+    for tamanho in (9, 10):
+        soma = sum(digitos[i] * (tamanho + 1 - i) for i in range(tamanho))
+        digitos.append((soma * 10) % 11 % 10)
+    return "".join(map(str, digitos))
+
+
 def proximo_dia_util(dias=3):
     d = date.today() + timedelta(days=dias)
     while d.weekday() > 4:
@@ -236,7 +245,7 @@ class TestExclusoesEBuscas(Base):  # itens 9, 10, 11
 
     def test_limite_para_autocompletar(self):
         for i in range(15):
-            pacientes.cadastrar(f"Maria {i:02d}", f"{i:011d}", "01/01/2000")
+            pacientes.cadastrar(f"Maria {i:02d}", cpf_valido_de(f"{i + 100000001:09d}"), "01/01/2000")
         self.assertEqual(len(pacientes.listar("maria", limite=10)), 10)
         self.assertEqual(len(pacientes.listar("maria", limite=10, offset=10)), 5)
 
