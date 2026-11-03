@@ -38,7 +38,7 @@ python main.py
 Na primeira execução o arquivo `clinica.db` é criado automaticamente na pasta do projeto,
 junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
 
-> O repositório já inclui um `clinica.db` com alguns registros de exemplo.
+> O repositório já inclui um `clinica.db` com poucos registros de exemplo, todos fictícios (nomes inventados, e-mails `@example.com` e CPFs gerados só para teste).
 > Para começar do zero, feche o programa e apague o arquivo `clinica.db`: ele é recriado
 > vazio (só com o `admin` e as especialidades iniciais) na próxima execução.
 
@@ -89,11 +89,11 @@ python -m unittest discover -s tests -v
 | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
 | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |
 | `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação, cancelamento e botão "Imprimir comprovante". |
-| `ui/telas_prototipo.py` | Protótipos antigos de Profissionais e Consultas. Não são mais usados pelo sistema (as telas reais estão em `tela_profissionais.py` e `tela_consultas.py`). |
-| `cli/` | Versão antiga em terminal (só pacientes). Não é chamada pelo `main.py` e não passa pelo login. Ver "Versão em terminal". |
-| `tests/test_clinica.py` | Testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
+| `services/agenda.py`, `services/especialidades.py`, `services/financeiro.py` | Agenda do médico, especialidades com valor da consulta e financeiro (pagamentos e histórico). |
+| `services/atestado.py`, `services/receituario.py`, `services/documentos.py` | Atestado e receituário (A4) e documentos emitidos, guardados por paciente. |
+| `tests/test_clinica.py`, `tests/test_novos_requisitos.py` | 87 testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
 | `DOCUMENTOS/Relatorio_Sistema_Clinica_Equipe.docx` | Relatório do sistema produzido pela equipe. |
-| `__init__.py` (em `services/`, `ui/` e `cli/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
+| `__init__.py` (em `services/` e `ui/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
 
 ## Organização em camadas
 
@@ -114,7 +114,7 @@ Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seçã
 **Pacientes**
 
 - Nome, CPF e data de nascimento obrigatórios (RN02).
-- CPF digitado só com números (11 dígitos) e único no sistema (RN02 e RN06).
+- CPF digitado só com números (11 dígitos), com os dígitos verificadores conferidos, e único no sistema (RN02 e RN06).
 - Data de nascimento no formato DD/MM/AAAA e não pode ser futura (RN05).
 - Paciente com consultas vinculadas não pode ser excluído (RN04).
 
@@ -135,27 +135,6 @@ Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seçã
 - Consultas canceladas ou já realizadas não podem ser alteradas. Uma consulta realizada não pode ser cancelada, e uma cancelada não pode ser marcada como realizada.
 - Ao selecionar uma consulta na tabela aparece o botão **Imprimir comprovante**, com os dados do paciente (CPF parcialmente oculto, ex.: `529.***.***-25`), do profissional, a especialidade, a data e o horário. Escolha o papel (80 mm ou 58 mm); o comprovante abre no navegador já com a janela de impressão, onde se escolhe a impressora térmica (em "Mais definições", deixe as margens em "Nenhuma" e desmarque cabeçalhos e rodapés).
 - Consultas não são excluídas, e sim canceladas (com motivo opcional), para manter o histórico (RN07).
-
-## Modo de teste do CPF
-
-Por enquanto, a conferência dos dígitos verificadores do CPF está **desativada**, para permitir testes com CPFs fictícios (o sistema só exige 11 números e não aceita CPF repetido).
-Para ativá-la de novo, altere em `services/pacientes.py`:
-
-```python
-VALIDAR_CPF = True
-```
-
-Os dados de teste devem ser sempre fictícios.
-
-## Versão em terminal
-
-A pasta `cli/` guarda uma versão antiga do sistema para o terminal, só com o cadastro de pacientes
-(Profissionais e Consultas aparecem como "em desenvolvimento"). Ela usa as mesmas regras e o mesmo banco,
-mas não passa pela tela de login. Para abri-la, na pasta do projeto:
-
-```bash
-python -c "from cli.app import executar; executar()"
-```
 
 ## Novidades (requisitos de out/2026)
 
