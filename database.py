@@ -37,7 +37,12 @@ CREATE TABLE IF NOT EXISTS usuario (
     senha_hash TEXT NOT NULL,
     ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
     -- 1 = super usuário: pode cadastrar e alterar os outros usuários
-    superusuario INTEGER NOT NULL DEFAULT 0 CHECK (superusuario IN (0, 1))
+    superusuario INTEGER NOT NULL DEFAULT 0 CHECK (superusuario IN (0, 1)),
+    -- papel do usuário do sistema (define o que ele pode fazer)
+    papel TEXT NOT NULL DEFAULT 'Atendente'
+        CHECK (papel IN ('Administrador', 'Atendente', 'Médico')),
+    -- só para o papel Médico: qual profissional ele é (NULL para os demais)
+    profissional_id INTEGER REFERENCES profissional (id)
 );
 
 CREATE TABLE IF NOT EXISTS paciente (
@@ -87,6 +92,21 @@ CREATE TABLE IF NOT EXISTS documento_emitido (
     texto             TEXT NOT NULL,           -- conteúdo em texto
     html              TEXT NOT NULL,           -- página pronta para reimprimir
     FOREIGN KEY (paciente_id) REFERENCES paciente (id)
+);
+
+-- Registro de cada 2ª via entregue pela recepção (quem entregou, a quem e quando).
+CREATE TABLE IF NOT EXISTS entrega_documento (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    documento_id            INTEGER NOT NULL,
+    forma                   TEXT NOT NULL CHECK (forma IN ('Impressão', 'PDF')),
+    destinatario_nome       TEXT NOT NULL,
+    destinatario_vinculo    TEXT NOT NULL
+        CHECK (destinatario_vinculo IN ('Próprio paciente', 'Responsável legal', 'Autorizado pelo paciente')),
+    destinatario_documento  TEXT,                   -- CPF ou RG de quem recebeu
+    usuario_id              INTEGER,
+    usuario_nome            TEXT NOT NULL,
+    data_hora               TEXT NOT NULL,  -- AAA-MM-DD HH:MM:SS
+    FOREIGN KEY (documento_id) REFERENCES documento_emitido (id)
 );
 
 -- Histórico do financeiro: quem alterou valor ou pagamento, e quando.
@@ -220,6 +240,17 @@ def _migrar_usuario():
                 "ALTER TABLE usuario ADD COLUMN superusuario INTEGER NOT NULL DEFAULT 0 "
                 "CHECK (superusuario IN (0, 1))"
             )
+        if "papel" not in colunas:
+            con.execute(
+                "ALTER TABLE usuario ADD COLUMN papel TEXT NOT NULL DEFAULT 'Atendente' "
+                "CHECK (papel IN ('Administrador', 'Atendente', 'Médico'))"
+            )
+            # Quem já era super usuário passa a ser Administrador; os demais, Atendente.
+            con.execute("UPDATE usuario SET papel = 'Administrador' WHERE superusuario = 1")
+        if "profissional_id" not in colunas:
+            con.execute(
+                "ALTER TABLE usuario ADD COLUMN profissional_id INTEGER REFERENCES profissional (id)"
+            )    
 
 
 def _colunas(con, tabela):
