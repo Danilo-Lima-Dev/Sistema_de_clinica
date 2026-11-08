@@ -22,16 +22,17 @@ from services.validacoes import ErroValidacao, VALOR_MAXIMO_CENTAVOS, brl
 AGUARDANDO = "Aguardando pagamento"
 PAGO = "Pago"
 
-MSG_SO_SUPER = "Somente o super usuário pode acessar o financeiro."
+MSG_SO_SUPER = "Somente o administrador pode acessar o financeiro."
+MSG_PAGAMENTO = "Somente a recepção ou o administrador registram pagamentos."
 
 
 def _agora():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _exigir(executor_id):
-    """Confere a permissão e devolve (id, nome do usuário) para o histórico."""
-    autenticacao.exigir_superusuario(executor_id, MSG_SO_SUPER)
+def _exigir(executor_id, *papeis, mensagem=MSG_SO_SUPER):
+    """Confere a permissão (padrão: só Administrador) e devolve (id, nome) para o histórico."""
+    autenticacao.exigir_papel(executor_id, *(papeis or (autenticacao.PAPEL_ADMIN,)), mensagem=mensagem)
     with database.transacao() as con:
         linha = con.execute(
             "SELECT id, nome, login FROM usuario WHERE id = ?", (executor_id,)
@@ -117,8 +118,10 @@ def alterar_valor_consulta(executor_id, consulta_id, valor_centavos):
 
 # ---------------------------------------------------------------- pagamento
 def registrar_pagamento(executor_id, consulta_id):
-    """Marca a consulta como paga (libera a confirmação)."""
-    usuario = _exigir(executor_id)
+    """Marca a consulta como paga (libera a confirmação). Atendente ou Administrador."""
+    usuario = _exigir(
+        executor_id, autenticacao.PAPEL_ATENDENTE, autenticacao.PAPEL_ADMIN, mensagem=MSG_PAGAMENTO
+    )
     with database.transacao() as con:
         c = con.execute(
             "SELECT valor_centavos, pagamento_status, situacao FROM consulta WHERE id = ?",

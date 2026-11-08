@@ -471,7 +471,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
         if self.id_selecionado is None:
             return
         try:
-            consultas.confirmar(self.id_selecionado)
+            consultas.confirmar(self.usuario["id"], self.id_selecionado)
         except ErroValidacao as erro:  # ex.: pagamento ainda não registrado
             messagebox.showwarning("Não foi possível confirmar", str(erro))
             return
@@ -490,7 +490,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
         ):
             return
         try:
-            consultas.marcar_realizada(self.id_selecionado)
+            consultas.marcar_realizada(self.usuario["id"], self.id_selecionado)
             messagebox.showinfo("Sucesso", "Consulta registrada como realizada com sucesso.")
         except ErroValidacao as erro:
             messagebox.showwarning("Aviso", str(erro))

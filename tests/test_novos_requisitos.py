@@ -111,7 +111,7 @@ class TestValoresEFinanceiro(Base):  # itens 2, 4, 5, 3
             lambda: financeiro.resumo(self.comum["id"]),
             lambda: financeiro.historico(self.comum["id"]),
             lambda: financeiro.listar_consultas(self.comum["id"]),
-            lambda: financeiro.registrar_pagamento(self.comum["id"], 1),
+            lambda: financeiro.alterar_valor_consulta(self.comum["id"], 1, 1000),
         ):
             with self.assertRaises(ErroValidacao):
                 chamada()
@@ -126,9 +126,9 @@ class TestValoresEFinanceiro(Base):  # itens 2, 4, 5, 3
     def test_confirmar_so_apos_pagamento(self):
         id_c = self.agendar()
         with self.assertRaises(ErroValidacao):
-            consultas.confirmar(id_c)
+            consultas.confirmar(self.comum["id"], id_c)
         financeiro.registrar_pagamento(self.super["id"], id_c)
-        consultas.confirmar(id_c)
+        consultas.confirmar(self.comum["id"], id_c)
         self.assertEqual(consultas.obter(id_c)["situacao"], "Confirmada")
         with self.assertRaises(ErroValidacao):  # confirmada: não desfaz o pagamento
             financeiro.desfazer_pagamento(self.super["id"], id_c)

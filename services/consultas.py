@@ -20,7 +20,7 @@ Regras novas:
 import sqlite3
 
 import database
-from services import agenda
+from services import agenda, autenticacao
 from services.validacoes import (
     ErroValidacao,
     calcular_hora_fim,
@@ -204,12 +204,17 @@ def cancelar(id_consulta, motivo_cancelamento=""):
         )
 
 
-def confirmar(id_consulta):
+def confirmar(executor_id, id_consulta):
     """Confirma a consulta. SÓ é permitido se o pagamento estiver registrado como 'Pago'.
 
-    A regra vale aqui (back-end) e também no banco (gatilho `tg_confirmar_so_pago_update`),
-    então não depende de a tela esconder ou desabilitar o botão.
+    Quem confirma: Atendente ou Administrador (o Médico não). A regra do pagamento vale aqui
+    (back-end) e também no banco (gatilho `tg_confirmar_so_pago_update`), então não depende
+    de a tela esconder ou desabilitar o botão.
     """
+    autenticacao.exigir_papel(
+        executor_id, autenticacao.PAPEL_ATENDENTE, autenticacao.PAPEL_ADMIN,
+        mensagem="Somente a recepção ou o administrador confirmam consultas.",
+    )
     with database.transacao() as con:
         atual = con.execute(
             "SELECT situacao, pagamento_status FROM consulta WHERE id = ?", (id_consulta,)
@@ -225,17 +230,25 @@ def confirmar(id_consulta):
         if atual["pagamento_status"] != "Pago":
             raise ErroValidacao(
                 "Não é possível confirmar: o pagamento ainda não foi registrado "
-                "(Aguardando pagamento). O super usuário registra o pagamento no módulo Financeiro."
+                "(Aguardando pagamento). Registre o pagamento antes de confirmar."
             )
         con.execute("UPDATE consulta SET situacao = 'Confirmada' WHERE id = ?", (id_consulta,))
 
 
-def marcar_realizada(id_consulta):
-    """Marca uma consulta agendada como realizada (RF09)."""
+def marcar_realizada(executor_id, id_consulta):
+    """Marca uma consulta como realizada (RF09). Só o Médico, e só de consultas dele."""
+    medico = autenticacao.exigir_papel(
+        executor_id, autenticacao.PAPEL_MEDICO,
+        mensagem="Somente o médico pode marcar uma consulta como realizada.",
+    )
     with database.transacao() as con:
-        atual = con.execute("SELECT situacao FROM consulta WHERE id = ?", (id_consulta,)).fetchone()
+        atual = con.execute(
+            "SELECT situacao, profissional_id FROM consulta WHERE id = ?", (id_consulta,)
+        ).fetchone()
         if not atual:
             raise ErroValidacao("Consulta não encontrada.")
+        if atual["profissional_id"] != medico["profissional_id"]:
+            raise ErroValidacao("O médico só marca como realizadas as suas próprias consultas.")
         if atual["situacao"] == "Cancelada":
             raise ErroValidacao("Uma consulta cancelada não pode ser marcada como realizada.")
         if atual["situacao"] == "Realizada":
