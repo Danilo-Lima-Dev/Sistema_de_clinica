@@ -26,6 +26,12 @@ SUPER_NOME = "Super Usuário"
 SUPER_LOGIN = "super"
 SUPER_SENHA = "super123"
 
+# Papéis (os "crachás"): cada um define o que a pessoa pode fazer no sistema.
+PAPEL_ADMIN = "Administrador"
+PAPEL_ATENDENTE = "Atendente"
+PAPEL_MEDICO = "Médico"
+PAPEIS = (PAPEL_ADMIN, PAPEL_ATENDENTE, PAPEL_MEDICO)
+
 
 # ------------------------------------------------------------------ hash
 def gerar_hash(senha, salt=None):
@@ -66,19 +72,57 @@ def _validar_senha(senha):
         )
 
 
-def cadastrar_usuario(nome, login, senha, superusuario=False):
+def _definir_papel(papel, superusuario):
+    """Descobre o papel final. Sem papel, vale o jeito antigo: super usuário = Administrador."""
+    if papel is None:
+        papel = PAPEL_ADMIN if superusuario else PAPEL_ATENDENTE
+    if papel not in PAPEIS:
+        raise ErroValidacao("Escolha um papel válido: Administrador, Atendente ou Médico.")
+    return papel
+
+
+def _validar_vinculo_medico(con, papel, profissional_id, ignorar_usuario_id=None):
+    """Só o Médico é ligado a um profissional; devolve o profissional_id a gravar (ou None)."""
+    if papel != PAPEL_MEDICO:
+        if profissional_id:
+            raise ErroValidacao("Somente o papel Médico é ligado a um profissional.")
+        return None
+    if not profissional_id:
+        raise ErroValidacao("Escolha qual profissional é este médico.")
+    prof = con.execute(
+        "SELECT ativo FROM profissional WHERE id = ?", (profissional_id,)
+    ).fetchone()
+    if prof is None:
+        raise ErroValidacao("Profissional não encontrado.")
+    if not prof["ativo"]:
+        raise ErroValidacao("Este profissional está inativo.")
+    outro = con.execute(
+        "SELECT 1 FROM usuario WHERE profissional_id = ? AND id != ?",
+        (profissional_id, ignorar_usuario_id or 0),
+    ).fetchone()
+    if outro:
+        raise ErroValidacao("Este profissional já está ligado a outro usuário.")
+    return profissional_id
+
+
+def cadastrar_usuario(nome, login, senha, superusuario=False, papel=None, profissional_id=None):
     """Cria um usuário. Levanta ErroValidacao se algum dado for inválido.
 
     Esta função não confere permissão (serve para o script de linha de comando e para
-    os testes). A tela usa `cadastrar_usuario_por`, que só aceita um super usuário.
+    os testes). A tela usa `cadastrar_usuario_por`, que só aceita um Administrador.
+    O papel manda: a coluna antiga `superusuario` fica 1 só para o Administrador.
     """
     nome, login = _validar_nome_login(nome, login)
     _validar_senha(senha)
+    papel = _definir_papel(papel, superusuario)
     try:
         with database.transacao() as con:
+            profissional_id = _validar_vinculo_medico(con, papel, profissional_id)
             con.execute(
-                "INSERT INTO usuario (nome, login, senha_hash, superusuario) VALUES (?, ?, ?, ?)",
-                (nome, login, gerar_hash(senha), 1 if superusuario else 0),
+                "INSERT INTO usuario (nome, login, senha_hash, superusuario, papel, profissional_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (nome, login, gerar_hash(senha), 1 if papel == PAPEL_ADMIN else 0,
+                 papel, profissional_id),
             )
     except sqlite3.IntegrityError:
         raise ErroValidacao("Já existe um usuário com esse login.") from None
@@ -104,18 +148,24 @@ def criar_superusuario_padrao():
 
 
 # ------------------------------------------------- gerência (só super usuário)
-def exigir_superusuario(executor_id, mensagem="Somente um super usuário pode gerenciar usuários."):
-    """Confere NO BANCO se quem pede ainda é um super usuário ativo (senão levanta ErroValidacao).
+def exigir_papel(executor_id, *papeis, mensagem="Você não tem permissão para esta ação."):
+    """O "cadeado": confere NO BANCO se quem pede está ativo e tem um dos papéis permitidos.
 
-    Usada também pelo financeiro e pelos valores das especialidades: a permissão é conferida
-    aqui, no back-end, e não só escondendo botões na tela.
+    Se não tiver, levanta ErroValidacao. Se tiver, devolve (id, papel, profissional_id).
+    A permissão é conferida aqui, no back-end, e não só escondendo botões na tela.
     """
     with database.transacao() as con:
         linha = con.execute(
-            "SELECT superusuario, ativo FROM usuario WHERE id = ?", (executor_id,)
+            "SELECT id, papel, profissional_id, ativo FROM usuario WHERE id = ?", (executor_id,)
         ).fetchone()
-    if linha is None or not linha["superusuario"] or not linha["ativo"]:
+    if linha is None or not linha["ativo"] or linha["papel"] not in papeis:
         raise ErroValidacao(mensagem)
+    return {"id": linha["id"], "papel": linha["papel"], "profissional_id": linha["profissional_id"]}
+
+
+def exigir_superusuario(executor_id, mensagem="Somente um super usuário pode gerenciar usuários."):
+    """Exige o papel Administrador (nome antigo mantido: financeiro e especialidades usam)."""
+    exigir_papel(executor_id, PAPEL_ADMIN, mensagem=mensagem)
 
 
 def _exigir_superusuario(executor_id):
@@ -127,17 +177,20 @@ def listar_usuarios(executor_id):
     _exigir_superusuario(executor_id)
     with database.transacao() as con:
         return con.execute(
-            "SELECT id, nome, login, ativo, superusuario FROM usuario ORDER BY nome COLLATE NOCASE"
+            "SELECT id, nome, login, ativo, superusuario, papel, profissional_id "
+            "FROM usuario ORDER BY nome COLLATE NOCASE"
         ).fetchall()
 
 
-def cadastrar_usuario_por(executor_id, nome, login, senha, superusuario=False):
-    """Cadastra um usuário em nome de um super usuário."""
+def cadastrar_usuario_por(executor_id, nome, login, senha, superusuario=False,
+                          papel=None, profissional_id=None):
+    """Cadastra um usuário em nome de um Administrador."""
     _exigir_superusuario(executor_id)
-    cadastrar_usuario(nome, login, senha, superusuario)
+    cadastrar_usuario(nome, login, senha, superusuario, papel, profissional_id)
 
 
-def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True, superusuario=False):
+def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True,
+                      superusuario=False, papel=None, profissional_id=None):
     """Altera nome, login, situação e perfil de um usuário; troca a senha se `senha` vier preenchida.
 
     Senha em branco = mantém a senha atual. Só um super usuário pode usar.
@@ -146,7 +199,8 @@ def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True
     nome, login = _validar_nome_login(nome, login)
     if senha:
         _validar_senha(senha)
-    ativo, superusuario = (1 if ativo else 0), (1 if superusuario else 0)
+    papel = _definir_papel(papel, superusuario)
+    ativo, superusuario = (1 if ativo else 0), (1 if papel == PAPEL_ADMIN else 0)
 
     try:
         with database.transacao() as con:
@@ -157,6 +211,9 @@ def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True
                 raise ErroValidacao("Usuário não encontrado.")
             if id_usuario == executor_id and not ativo:
                 raise ErroValidacao("Você não pode desativar o seu próprio usuário.")
+            profissional_id = _validar_vinculo_medico(
+                con, papel, profissional_id, ignorar_usuario_id=id_usuario
+            )
             era_super_ativo = atual["superusuario"] and atual["ativo"]
             if era_super_ativo and not (superusuario and ativo):
                 restantes = con.execute(
@@ -167,8 +224,8 @@ def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True
                     raise ErroValidacao(
                         "Deve existir pelo menos um super usuário ativo no sistema."
                     )
-            campos = "nome = ?, login = ?, ativo = ?, superusuario = ?"
-            valores = [nome, login, ativo, superusuario]
+            campos = "nome = ?, login = ?, ativo = ?, superusuario = ?, papel = ?, profissional_id = ?"
+            valores = [nome, login, ativo, superusuario, papel, profissional_id]
             if senha:
                 campos += ", senha_hash = ?"
                 valores.append(gerar_hash(senha))
@@ -201,7 +258,7 @@ def excluir_usuario(executor_id, id_usuario):
 def autenticar(login, senha):
     """Confere login e senha.
 
-    Devolve um dicionário com os dados do usuário (id, nome, login, superusuario) se estiver
+    Devolve um dicionário com os dados do usuário (id, nome, login, superusuario, papel, profissional_id) se estiver
     correto; senão levanta ErroValidacao. A mensagem é a mesma para "usuário não
     existe" e "senha errada", para não revelar quais logins existem.
     """
@@ -211,7 +268,8 @@ def autenticar(login, senha):
 
     with database.transacao() as con:
         linha = con.execute(
-            "SELECT id, nome, login, senha_hash, ativo, superusuario FROM usuario WHERE login = ?",
+            "SELECT id, nome, login, senha_hash, ativo, superusuario, papel, profissional_id "
+            "FROM usuario WHERE login = ?",
             (login,),
         ).fetchone()
 
@@ -226,4 +284,5 @@ def autenticar(login, senha):
     return {
         "id": linha["id"], "nome": linha["nome"], "login": linha["login"],
         "superusuario": bool(linha["superusuario"]),
+        "papel": linha["papel"], "profissional_id": linha["profissional_id"],
     }
