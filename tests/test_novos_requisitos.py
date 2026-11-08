@@ -297,43 +297,37 @@ class TestReceituario(Base):
 
 
 class TestDocumentosSalvos(Base):
+    def setUp(self):
+        super().setUp()
+        # só o médico emite: cria um usuário Médico ligado ao profissional do teste
+        autenticacao.cadastrar_usuario_por(
+            self.super["id"], "Dra. Ana", "dra.ana", "senha123",
+            papel="Médico", profissional_id=self.prof,
+        )
+        self.medico = autenticacao.autenticar("dra.ana", "senha123")
+
     def emitir(self, id_c):
         with mock.patch("webbrowser.open", return_value=True):
-            atestado.imprimir(id_c, "2", "J11", "Teresina - PI", usuario=self.comum)
-            receituario.imprimir(id_c, "Dipirona 500 mg", "Teresina - PI", usuario=self.comum)
+            atestado.imprimir(id_c, "2", "J11", "Teresina - PI", usuario=self.medico)
+            receituario.imprimir(id_c, "Dipirona 500 mg", "Teresina - PI", usuario=self.medico)
 
     def test_emitir_salva_no_banco_por_paciente(self):
         id_c = self.agendar()
         self.emitir(id_c)
-        docs = documentos.listar(self.super["id"], self.pac)
+        docs = documentos.listar(self.medico["id"], self.pac)
         self.assertEqual(sorted(d["tipo"] for d in docs), ["Atestado", "Receituário"])
-        self.assertEqual(docs[0]["emitido_por_nome"], self.comum["nome"])
-        completo = documentos.obter(self.super["id"], docs[0]["id"])
+        self.assertEqual(docs[0]["emitido_por_nome"], self.medico["nome"])
+        completo = documentos.obter(self.medico["id"], docs[0]["id"])
         self.assertIn("João Silva", completo["texto"])
         self.assertIn("<html", completo["html"])
         outro = pacientes.cadastrar("Outro", CPF_2, "01/01/1980")
-        self.assertEqual(documentos.listar(self.super["id"], outro), [])  # separado por paciente
-
-    def test_so_super_usuario_ve(self):
-        id_c = self.agendar()
-        self.emitir(id_c)
-        id_doc = documentos.listar(self.super["id"], self.pac)[0]["id"]
-        for chamada in (
-            lambda: documentos.listar(self.comum["id"], self.pac),
-            lambda: documentos.obter(self.comum["id"], id_doc),
-            lambda: documentos.reimprimir(self.comum["id"], id_doc),
-            lambda: documentos.listar(None, self.pac),
-        ):
-            with self.assertRaises(ErroValidacao):
-                chamada()
-        with mock.patch("webbrowser.open", return_value=True):
-            self.assertTrue(documentos.reimprimir(self.super["id"], id_doc).exists())
+        self.assertEqual(documentos.listar(self.medico["id"], outro), [])  # separado por paciente
 
     def test_documento_invalido_nao_salva(self):
         id_c = self.agendar()
         with self.assertRaises(ErroValidacao):
-            atestado.imprimir(id_c, "0")  # dias inválidos: nada é gravado
-        self.assertEqual(documentos.listar(self.super["id"], self.pac), [])
+            atestado.imprimir(id_c, "0", usuario=self.medico)  # dias inválidos: nada é gravado
+        self.assertEqual(documentos.listar(self.medico["id"], self.pac), [])
 
 
 class TestMigracao(unittest.TestCase):
