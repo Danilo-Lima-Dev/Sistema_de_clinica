@@ -13,7 +13,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import atestado, pacientes, receituario
+from services import acesso, atestado, receituario
 from services.validacoes import (
     MSG_EMAIL,
     ErroValidacao,
@@ -72,8 +72,9 @@ class _Dialogo(ctk.CTkToplevel):
 class DialogoNovoPaciente(_Dialogo):
     """Cadastro rápido de paciente. `resultado` = id do paciente criado."""
 
-    def __init__(self, janela, nome_sugerido=""):
+    def __init__(self, janela, usuario_logado, nome_sugerido=""):
         super().__init__(janela, "Novo paciente", 460, 600)
+        self.usuario = usuario_logado
         self.var_nome = ctk.StringVar(value=nome_sugerido)
         self.var_cpf = ctk.StringVar()
         self.var_nasc = ctk.StringVar()
@@ -116,9 +117,9 @@ class DialogoNovoPaciente(_Dialogo):
         if not (self.validar_telefone() and self.validar_email()):
             return
         try:
-            self.resultado = pacientes.cadastrar(
-                self.var_nome.get(), self.var_cpf.get(), self.var_nasc.get(),
-                self.var_tel.get(), self.var_email.get(),
+            self.resultado = acesso.cadastrar_paciente(
+                self.usuario["id"], self.var_nome.get(), self.var_cpf.get(),
+                self.var_nasc.get(), self.var_tel.get(), self.var_email.get(),
             )
         except ErroValidacao as erro:
             messagebox.showwarning("Verifique os dados", str(erro), parent=self)

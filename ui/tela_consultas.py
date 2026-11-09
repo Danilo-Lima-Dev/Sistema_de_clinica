@@ -16,7 +16,7 @@ from tkinter import messagebox, simpledialog
 import customtkinter as ctk
 
 from services import (
-    agenda, atestado, comprovante, consultas, pacientes, profissionais, receituario,
+    acesso, agenda, atestado, comprovante, consultas, pacientes, profissionais, receituario,
 )
 from services.validacoes import (
     ErroValidacao,
@@ -295,7 +295,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
     def _cadastrar_paciente_rapido(self):
         """Atalho: cadastra um paciente novo sem sair do agendamento e já o seleciona."""
         sugerido = self.campo_paciente.var.get().strip()
-        dialogo = DialogoNovoPaciente(self.winfo_toplevel(), nome_sugerido=sugerido)
+        dialogo = DialogoNovoPaciente(self.winfo_toplevel(), self.usuario, nome_sugerido=sugerido)
         self.wait_window(dialogo)
         if dialogo.resultado:
             novo = pacientes.obter(dialogo.resultado)
@@ -445,15 +445,18 @@ class TelaConsultas(ctk.CTkScrollableFrame):
 
         try:
             if self.id_selecionado is None:
-                consultas.agendar(paciente_id, profissional_id, data_br, hora, obs)
+                acesso.agendar_consulta(
+                    self.usuario["id"], paciente_id, profissional_id, data_br, hora, obs
+                )
                 mensagem = (
                     "Consulta agendada com sucesso!\n"
                     "Situação: Aguardando pagamento. Ela só poderá ser confirmada depois que o "
                     "pagamento for registrado no módulo Financeiro."
                 )
             else:
-                consultas.alterar_dados(
-                    self.id_selecionado, paciente_id, profissional_id, data_br, hora, obs
+                acesso.alterar_consulta(
+                    self.usuario["id"], self.id_selecionado, paciente_id, profissional_id,
+                    data_br, hora, obs,
                 )
                 mensagem = "Dados da consulta atualizados com sucesso!"
         except ErroValidacao as erro:
@@ -515,7 +518,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
             "Motivo do cancelamento", "Informe o motivo do cancelamento (opcional):"
         )
         try:
-            consultas.cancelar(self.id_selecionado, motivo or "")
+            acesso.cancelar_consulta(self.usuario["id"], self.id_selecionado, motivo or "")
             messagebox.showinfo("Sucesso", "Consulta cancelada com sucesso.")
         except ErroValidacao as erro:
             messagebox.showwarning("Aviso", str(erro))

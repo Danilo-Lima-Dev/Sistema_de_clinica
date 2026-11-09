@@ -9,7 +9,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import especialidades
+from services import acesso, especialidades
 from services.validacoes import (
     ErroValidacao,
     brl,
@@ -152,13 +152,14 @@ class TelaEspecialidades(ctk.CTkFrame):
             elif self.eh_super and self.id_selecionado is None:
                 valor = 0
             if self.id_selecionado is None:
-                especialidades.cadastrar(
-                    self.var_nome.get(), valor or 0, executor_id=self.usuario["id"]
+                acesso.cadastrar_especialidade(
+                    self.usuario["id"], self.var_nome.get(), valor or 0,
+                    executor_id=self.usuario["id"],
                 )
                 mensagem = "Especialidade cadastrada com sucesso."
             else:
-                especialidades.atualizar(
-                    self.id_selecionado, self.var_nome.get(), valor,
+                acesso.atualizar_especialidade(
+                    self.usuario["id"], self.id_selecionado, self.var_nome.get(), valor,
                     executor_id=self.usuario["id"],
                 )
                 mensagem = "Especialidade atualizada com sucesso."
@@ -183,7 +184,7 @@ class TelaEspecialidades(ctk.CTkFrame):
         ):
             return
         try:
-            especialidades.excluir(self.id_selecionado)
+            acesso.excluir_especialidade(self.usuario["id"], self.id_selecionado)
         except ErroValidacao as erro:
             messagebox.showwarning("Não foi possível excluir", str(erro))
             return

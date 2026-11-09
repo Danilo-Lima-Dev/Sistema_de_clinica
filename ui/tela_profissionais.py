@@ -7,7 +7,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import profissionais
+from services import acesso, profissionais
 from services.validacoes import (
     ErroValidacao,
     formatar_telefone,
@@ -32,6 +32,7 @@ def aplicar_mascara(variavel, funcao, entrada):
 
 class TelaProfissionais(ctk.CTkFrame):
     NOME_MENU = "Profissionais"
+    PRECISA_USUARIO = True  # o App entrega o usuário logado (a portaria confere o papel)
     COLUNAS = (
         ("id", "ID", 50),
         ("nome", "Nome", 215),
@@ -41,8 +42,9 @@ class TelaProfissionais(ctk.CTkFrame):
         ("ativo", "Situação", 85),
     )
 
-    def __init__(self, master):
+    def __init__(self, master, usuario_logado):
         super().__init__(master, fg_color="transparent")
+        self.usuario = usuario_logado
         self.id_selecionado = None
         self.ativo_selecionado = 1
 
@@ -225,10 +227,12 @@ class TelaProfissionais(ctk.CTkFrame):
         )
         try:
             if self.id_selecionado is None:
-                profissionais.cadastrar(*dados)
+                acesso.cadastrar_profissional(self.usuario["id"], *dados)
                 mensagem = "Profissional cadastrado com sucesso."
             else:
-                profissionais.atualizar(self.id_selecionado, *dados, ativo=self.ativo_selecionado)
+                acesso.atualizar_profissional(
+                    self.usuario["id"], self.id_selecionado, *dados, ativo=self.ativo_selecionado
+                )
                 mensagem = "Dados do profissional atualizados com sucesso."
         except ErroValidacao as erro:
             messagebox.showwarning("Verifique os dados", str(erro))
@@ -245,7 +249,7 @@ class TelaProfissionais(ctk.CTkFrame):
         if self.id_selecionado is None:
             return
         try:
-            novo = profissionais.alternar_ativo(self.id_selecionado)
+            novo = acesso.alternar_ativo_profissional(self.usuario["id"], self.id_selecionado)
             status_txt = "reativado" if novo == 1 else "inativado"
             messagebox.showinfo("Sucesso", f"Profissional {status_txt} com sucesso.")
         except ErroValidacao as erro:
@@ -267,7 +271,7 @@ class TelaProfissionais(ctk.CTkFrame):
         ):
             return
         try:
-            profissionais.excluir(self.id_selecionado)
+            acesso.excluir_profissional(self.usuario["id"], self.id_selecionado)
         except ErroValidacao as erro:
             messagebox.showwarning("Não foi possível excluir", str(erro))
             return

@@ -12,7 +12,7 @@ from tkinter import messagebox, simpledialog
 
 import customtkinter as ctk
 
-from services import agenda, consultas, profissionais
+from services import acesso, agenda, consultas, profissionais
 from services.validacoes import (
     ErroValidacao,
     data_br_para_date,
@@ -26,9 +26,11 @@ DIAS_SEMANA = ("segunda", "terça", "quarta", "quinta", "sexta", "sábado", "dom
 
 class TelaAgenda(ctk.CTkFrame):
     NOME_MENU = "Agenda"
+    PRECISA_USUARIO = True  # o App entrega o usuário logado (a portaria confere o papel)
 
-    def __init__(self, master):
+    def __init__(self, master, usuario_logado):
         super().__init__(master, fg_color="transparent")
+        self.usuario = usuario_logado
         self.profissional = None  # dicionário do médico escolhido
         self.var_data = ctk.StringVar(value=date_para_br(date.today()))
 
@@ -187,7 +189,9 @@ class TelaAgenda(ctk.CTkFrame):
                 motivo = simpledialog.askstring(
                     "Motivo do bloqueio", "Motivo (opcional, ex.: reunião, folga):"
                 )
-                agenda.bloquear_horario(pid, data, h["hora_inicio"], motivo or "")
+                acesso.bloquear_horario(
+                    self.usuario["id"], pid, data, h["hora_inicio"], motivo or ""
+                )
             elif h["estado"] == agenda.RESERVADO:
                 c = consultas.obter(h["consulta_id"])
                 nome = c["paciente_nome"] if c else "paciente não encontrado"
@@ -203,7 +207,7 @@ class TelaAgenda(ctk.CTkFrame):
                     f"O horário {faixa} está bloqueado ({h['motivo']}).\nDeseja liberá-lo?",
                 ):
                     return
-                agenda.liberar_horario(pid, data, h["hora_inicio"])
+                acesso.liberar_horario(self.usuario["id"], pid, data, h["hora_inicio"])
             else:
                 messagebox.showinfo("Horário indisponível", f"{faixa}: {h['motivo']}.")
                 return
@@ -227,8 +231,8 @@ class TelaAgenda(ctk.CTkFrame):
             return
         motivo = simpledialog.askstring("Motivo", "Motivo (opcional, padrão: Folga):")
         try:
-            bloqueados, mantidos = agenda.bloquear_dia(
-                self.profissional["id"], data, motivo or "Folga"
+            bloqueados, mantidos = acesso.bloquear_dia(
+                self.usuario["id"], self.profissional["id"], data, motivo or "Folga"
             )
         except ErroValidacao as erro:
             messagebox.showwarning("Aviso", str(erro))
@@ -247,7 +251,7 @@ class TelaAgenda(ctk.CTkFrame):
         if self.profissional is None or data is None:
             return
         try:
-            liberados = agenda.liberar_dia(self.profissional["id"], data)
+            liberados = acesso.liberar_dia(self.usuario["id"], self.profissional["id"], data)
         except (ErroValidacao, sqlite3.Error) as erro:
             messagebox.showwarning("Aviso", str(erro))
             return
