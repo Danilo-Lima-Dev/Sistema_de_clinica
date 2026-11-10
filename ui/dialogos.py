@@ -13,7 +13,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import acesso, atestado, receituario
+from services import acesso, atestado, documentos, receituario
 from services.validacoes import (
     MSG_EMAIL,
     ErroValidacao,
@@ -218,4 +218,63 @@ class DialogoReceituario(_Dialogo):
             messagebox.showwarning("Verifique os dados", str(erro), parent=self)
             return
         self.resultado = (prescricao, self.var_local.get().strip())
+        self.destroy()
+
+
+class DialogoEntrega(_Dialogo):
+    """Quem retira a 2ª via. `resultado` = (forma, nome, vínculo, documento)."""
+
+    def __init__(self, janela):
+        super().__init__(janela, "Entregar 2ª via", 460, 560)
+        self.var_forma = ctk.StringVar(value=documentos.FORMAS_ENTREGA[0])
+        self.var_nome = ctk.StringVar()
+        self.var_vinculo = ctk.StringVar(value=documentos.VINCULOS[0])
+        self.var_documento = ctk.StringVar()
+
+        componentes.cabecalho(
+            self, "Entregar 2ª via",
+            "Confira o documento de identidade de quem retira. A entrega fica registrada.",
+        ).pack(anchor="w", padx=24, pady=(20, 10))
+
+        quadro = ctk.CTkFrame(self, fg_color="transparent")
+        quadro.pack(fill="x", padx=24)
+        bloco, combo = componentes.campo_combobox(
+            quadro, "Forma de entrega *", valores=list(documentos.FORMAS_ENTREGA),
+            variavel=self.var_forma, dica="PDF: no navegador, Imprimir > Salvar como PDF",
+        )
+        bloco.pack(fill="x", pady=(0, 10))
+        combo.configure(state="readonly")
+        bloco, entrada_nome = componentes.campo_texto(
+            quadro, "Nome de quem recebe *", self.var_nome
+        )
+        bloco.pack(fill="x", pady=(0, 10))
+        bloco, combo = componentes.campo_combobox(
+            quadro, "Vínculo com o paciente *", valores=list(documentos.VINCULOS),
+            variavel=self.var_vinculo,
+        )
+        bloco.pack(fill="x", pady=(0, 10))
+        combo.configure(state="readonly")
+        bloco, _entrada_documento = componentes.campo_texto(
+            quadro, "CPF ou RG de quem recebe *", self.var_documento,
+            "documento conferido no balcão",
+        )
+        bloco.pack(fill="x", pady=(0, 10))
+        self._linha_botoes("Entregar 2ª via", self._confirmar)
+        entrada_nome.focus_set()
+
+    def _confirmar(self):
+        nome = self.var_nome.get().strip()
+        documento = self.var_documento.get().strip()
+        if not nome:
+            messagebox.showwarning(
+                "Verifique os dados", "Informe o nome de quem vai receber o documento.", parent=self
+            )
+            return
+        if len(documento) < 5:
+            messagebox.showwarning(
+                "Verifique os dados", "Informe o CPF ou RG de quem vai receber o documento.",
+                parent=self,
+            )
+            return
+        self.resultado = (self.var_forma.get(), nome, self.var_vinculo.get(), documento)
         self.destroy()

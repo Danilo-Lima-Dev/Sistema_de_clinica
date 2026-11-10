@@ -25,7 +25,9 @@ class TestMenuPorPapel(unittest.TestCase):
 
     def test_atendente(self):
         telas = menu.telas_do_papel(PAPEL_ATENDENTE)
-        self.assertEqual(set(telas), {menu.CONSULTAS, menu.AGENDA, menu.PACIENTES})
+        self.assertEqual(
+            set(telas), {menu.CONSULTAS, menu.AGENDA, menu.PACIENTES, menu.DOCUMENTOS}
+        )
 
     def test_medico(self):
         telas = menu.telas_do_papel(PAPEL_MEDICO)

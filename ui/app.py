@@ -11,6 +11,8 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from services import menu as regras_menu
+
 from ui import tema
 from ui.tela_agenda import TelaAgenda
 from ui.tela_consultas import TelaConsultas
@@ -19,18 +21,24 @@ from ui.tela_financeiro import TelaFinanceiro
 from ui.tela_login import TelaLogin
 from ui.tela_pacientes import TelaPacientes
 from ui.tela_profissionais import TelaProfissionais
-from ui.tela_prontuario import TelaProntuario
+from ui.tela_prontuario import TelaDocumentos, TelaProntuario
 from ui.tela_usuarios import TelaUsuarios
 
 
 class App(ctk.CTk):
-    # Telas do sistema, na ordem em que aparecem no menu.
+    # Todas as telas que existem, pelo nome usado em services/menu.py (que diz quem vê o quê).
     # Cada tela tem o atributo NOME_MENU com o texto do cartão.
-    TELAS = (
-        TelaPacientes, TelaProfissionais, TelaEspecialidades, TelaAgenda, TelaConsultas,
-    )
-    # Telas extras que só o super usuário vê (o back-end confere a permissão de novo).
-    TELAS_SUPER = (TelaFinanceiro, TelaProntuario, TelaUsuarios)
+    CLASSES = {
+        regras_menu.CONSULTAS: TelaConsultas,
+        regras_menu.AGENDA: TelaAgenda,
+        regras_menu.PACIENTES: TelaPacientes,
+        regras_menu.PROFISSIONAIS: TelaProfissionais,
+        regras_menu.ESPECIALIDADES: TelaEspecialidades,
+        regras_menu.FINANCEIRO: TelaFinanceiro,
+        regras_menu.PRONTUARIO: TelaProntuario,
+        regras_menu.DOCUMENTOS: TelaDocumentos,
+        regras_menu.USUARIOS: TelaUsuarios,
+    }
 
     def __init__(self):
         tema.aplicar_tema()
@@ -59,10 +67,12 @@ class App(ctk.CTk):
         )
 
     def _telas_do_usuario(self):
-        """Telas que o usuário logado pode abrir (o super usuário ganha a de Usuários)."""
-        if self.usuario and self.usuario.get("superusuario"):
-            return self.TELAS + self.TELAS_SUPER
-        return self.TELAS
+        """Telas que o usuário logado vê no menu, na ordem certa (depende do papel dele).
+
+        Esconder o cartão não basta: o back-end confere o papel de novo em cada ação.
+        """
+        papel = (self.usuario or {}).get("papel")
+        return tuple(self.CLASSES[nome] for nome in regras_menu.telas_do_papel(papel))
 
     # ----------------------------------------------------- troca de telas
     def _novo_container(self):
@@ -134,7 +144,7 @@ class App(ctk.CTk):
                 self.telas[classe] = classe(conteudo, self.usuario)
             else:
                 self.telas[classe] = classe(conteudo)
-        self._mostrar_tela(self.TELAS[0])
+            self._mostrar_tela(self.CLASSES[regras_menu.tela_inicial(self.usuario["papel"])])
         self._centralizar()
 
     def _montar_menu(self, container):
