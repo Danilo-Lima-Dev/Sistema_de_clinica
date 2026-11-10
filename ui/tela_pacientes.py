@@ -7,7 +7,8 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import pacientes
+from services import acesso, pacientes
+from services import menu as regras_menu
 from services.validacoes import (
     MSG_EMAIL,
     ErroValidacao,
@@ -37,6 +38,7 @@ def aplicar_mascara(variavel, funcao, entrada):
 
 class TelaPacientes(ctk.CTkFrame):
     NOME_MENU = "Pacientes"  # texto do cartão no menu lateral
+    PRECISA_USUARIO = True  # o App entrega o usuário logado (a portaria confere o papel)
     COLUNAS = (
         ("id", "ID", 50),
         ("nome", "Nome", 165),
@@ -47,8 +49,9 @@ class TelaPacientes(ctk.CTkFrame):
         ("situacao", "Situação", 80),
     )
 
-    def __init__(self, master):
+    def __init__(self, master, usuario_logado):
         super().__init__(master, fg_color="transparent")
+        self.usuario = usuario_logado
         self.id_selecionado = None  # None = cadastrando; número = editando
 
         self.var_nome = ctk.StringVar()
@@ -131,6 +134,9 @@ class TelaPacientes(ctk.CTkFrame):
             botoes, "Excluir", self.excluir, estilo="perigo", state="disabled"
         )
         self.botao_excluir.pack(side="left")
+        if not regras_menu.pode(self.usuario["papel"], regras_menu.DESATIVAR_EXCLUIR_PACIENTE):
+            self.botao_ativo.pack_forget()  # só o administrador desativa ou exclui
+            self.botao_excluir.pack_forget()
 
     def _montar_lista(self):
         cartao = componentes.cartao(self)
@@ -231,10 +237,10 @@ class TelaPacientes(ctk.CTkFrame):
         )
         try:
             if self.id_selecionado is None:
-                pacientes.cadastrar(*dados)
+                acesso.cadastrar_paciente(self.usuario["id"], *dados)
                 mensagem = "Paciente cadastrado com sucesso."
             else:
-                pacientes.atualizar(self.id_selecionado, *dados)
+                acesso.atualizar_paciente(self.usuario["id"], self.id_selecionado, *dados)
                 mensagem = "Dados do paciente atualizados com sucesso."
         except ErroValidacao as erro:
             messagebox.showwarning("Verifique os dados", str(erro))
@@ -256,7 +262,7 @@ class TelaPacientes(ctk.CTkFrame):
         ):
             return
         try:
-            pacientes.excluir(self.id_selecionado)
+            acesso.excluir_paciente(self.usuario["id"], self.id_selecionado)
         except ErroValidacao as erro:
             messagebox.showwarning("Não foi possível excluir", str(erro))
             return
@@ -280,7 +286,7 @@ class TelaPacientes(ctk.CTkFrame):
         ):
             return
         try:
-            novo = pacientes.alternar_ativo(self.id_selecionado)
+            novo = acesso.alternar_ativo_paciente(self.usuario["id"], self.id_selecionado)
         except ErroValidacao as erro:
             messagebox.showwarning("Aviso", str(erro))
             return

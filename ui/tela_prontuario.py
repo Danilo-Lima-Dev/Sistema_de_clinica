@@ -1,20 +1,27 @@
-"""Documentos salvos do paciente (atestados e receituários) - SÓ o super usuário vê.
+"""Documentos salvos do paciente (atestados e receituários).
 
-Escolha o paciente na busca; a lista mostra tudo que foi emitido para ele, com o texto ao
-lado e o botão de reimprimir. A permissão é conferida de novo no back-end (`services/documentos.py`).
+  * Médico  -> tela "Prontuário": vê os documentos das suas consultas e pode reimprimir.
+  * Atendente -> tela "Documentos": vê o conteúdo (só leitura) e ENTREGA a 2ª via, informando
+    para quem entregou (nome, vínculo e CPF/RG). A entrega fica registrada.
+
+Escolha o paciente na busca; a lista mostra tudo que foi emitido para ele, com o texto ao lado.
+A permissão é conferida de novo no back-end (`services/documentos.py`).
 """
 import sqlite3
 from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import documentos, pacientes
+from services import autenticacao, documentos, pacientes
 from services.validacoes import ErroValidacao, formatar_cpf
 from ui import componentes, tema
+from ui.dialogos import DialogoEntrega
 
 
 class TelaProntuario(ctk.CTkFrame):
     NOME_MENU = "Prontuário"
+    TITULO = "Prontuário"
+    SUBTITULO = "Atestados e receituários dos seus pacientes (visível só para o médico)."
     PRECISA_USUARIO = True  # o App entrega o usuário logado
     COLUNAS = (
         ("id", "ID", 50),
@@ -29,13 +36,14 @@ class TelaProntuario(ctk.CTkFrame):
         self.usuario = usuario_logado
         self.paciente = None
         self.id_documento = None
+        # a recepção ENTREGA a 2ª via (com registro); o médico reimprime direto
+        self._entrega = usuario_logado["papel"] == autenticacao.PAPEL_ATENDENTE
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
-        componentes.cabecalho(
-            self, "Prontuário",
-            "Atestados e receituários salvos de cada paciente (visível só para o super usuário).",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
+        componentes.cabecalho(self, self.TITULO, self.SUBTITULO).grid(
+            row=0, column=0, sticky="w", pady=(0, 12)
+        )
 
         cartao = componentes.cartao(self)
         cartao.grid(row=1, column=0, sticky="ew", pady=(0, 12))
@@ -67,7 +75,9 @@ class TelaProntuario(ctk.CTkFrame):
         rodape = ctk.CTkFrame(corpo, fg_color="transparent")
         rodape.grid(row=1, column=0, columnspan=2, sticky="ew", padx=20, pady=(0, 14))
         self.botao_reimprimir = componentes.botao(
-            rodape, "Reimprimir", self._reimprimir, largura=150, state="disabled"
+            rodape, "Entregar 2ª via" if self._entrega else "Reimprimir",
+            self._entregar if self._entrega else self._reimprimir,
+            largura=170, state="disabled",
         )
         self.botao_reimprimir.pack(side="left")
         self.rotulo = ctk.CTkLabel(
@@ -138,9 +148,39 @@ class TelaProntuario(ctk.CTkFrame):
         self.botao_reimprimir.configure(state="normal")
 
     def _reimprimir(self):
+        """Médico: abre de novo um documento seu para imprimir."""
         if self.id_documento is None:
             return
         try:
             documentos.reimprimir(self.usuario["id"], self.id_documento)
         except (ErroValidacao, sqlite3.Error) as erro:
             messagebox.showwarning("Aviso", str(erro))
+
+    def _entregar(self):
+        """Recepção: pede quem está retirando, registra a entrega e abre a 2ª via."""
+        if self.id_documento is None:
+            return
+        dialogo = DialogoEntrega(self.winfo_toplevel())
+        self.wait_window(dialogo)
+        if not dialogo.resultado:
+            return
+        forma, nome, vinculo, documento = dialogo.resultado
+        try:
+            documentos.entregar_segunda_via(
+                self.usuario["id"], self.id_documento, forma, nome, vinculo, documento
+            )
+        except (ErroValidacao, sqlite3.Error) as erro:
+            messagebox.showwarning("Aviso", str(erro))
+            return
+        messagebox.showinfo(
+            "2ª via entregue",
+            f"A 2ª via foi aberta ({forma}) e a entrega para {nome} ficou registrada.",
+        )
+
+
+class TelaDocumentos(TelaProntuario):
+    """A mesma tela, com o nome e o texto da recepção (que entrega a 2ª via)."""
+
+    NOME_MENU = "Documentos"
+    TITULO = "Documentos"
+    SUBTITULO = "Consulte e entregue a 2ª via dos atestados e receituários (a entrega fica registrada)."

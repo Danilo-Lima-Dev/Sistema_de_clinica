@@ -449,7 +449,15 @@ class TestConsultas(unittest.TestCase):
 
     def test_marcar_realizada(self):
         id_c = consultas.agendar(self.id_paciente, self.id_prof, "20/12/2030", "10:00")
-        consultas.marcar_realizada(id_c)
+        # só o médico dono da consulta marca como realizada
+        autenticacao.criar_superusuario_padrao()
+        admin = autenticacao.autenticar("super", autenticacao.SUPER_SENHA)
+        autenticacao.cadastrar_usuario_por(
+            admin["id"], "Dr. Teste", "dr.teste", "senha123",
+            papel="Médico", profissional_id=self.id_prof,
+        )
+        medico = autenticacao.autenticar("dr.teste", "senha123")
+        consultas.marcar_realizada(medico["id"], id_c)
         obtida = consultas.obter(id_c)
         self.assertEqual(obtida["situacao"], "Realizada")  # RF09
 

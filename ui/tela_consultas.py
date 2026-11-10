@@ -16,7 +16,8 @@ from tkinter import messagebox, simpledialog
 import customtkinter as ctk
 
 from services import (
-    agenda, atestado, comprovante, consultas, pacientes, profissionais, receituario,
+    acesso, agenda, atestado, autenticacao, comprovante, consultas,
+    menu as regras_menu, pacientes, profissionais, receituario,
 )
 from services.validacoes import (
     ErroValidacao,
@@ -200,6 +201,23 @@ class TelaConsultas(ctk.CTkScrollableFrame):
             estilo="secundario", largura=170,
         )
         self.botao_receituario.pack(side="left", padx=(8, 0))
+        self._aplicar_papel()
+
+    def _aplicar_papel(self):
+        """Esconde os botões que o papel não pode usar (o back-end barra de qualquer jeito)."""
+        papel = self.usuario["papel"]
+        if not regras_menu.pode(papel, regras_menu.GERIR_CONSULTAS):  # o médico não agenda
+            for botao in (self.botao_salvar, self.botao_confirmar, self.botao_cancelar):
+                botao.pack_forget()
+        if not regras_menu.pode(papel, regras_menu.ATENDER):  # só o médico atende
+            for botao in (self.botao_realizada, self.botao_atestado, self.botao_receituario):
+                botao.pack_forget()
+
+    def _profissional_do_medico(self):
+        """O médico só vê as consultas dele; os outros papéis veem todas."""
+        if self.usuario["papel"] == autenticacao.PAPEL_MEDICO:
+            return self.usuario["profissional_id"]
+        return None
 
     def _montar_lista(self):
         cartao = componentes.cartao(self)
@@ -295,7 +313,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
     def _cadastrar_paciente_rapido(self):
         """Atalho: cadastra um paciente novo sem sair do agendamento e já o seleciona."""
         sugerido = self.campo_paciente.var.get().strip()
-        dialogo = DialogoNovoPaciente(self.winfo_toplevel(), nome_sugerido=sugerido)
+        dialogo = DialogoNovoPaciente(self.winfo_toplevel(), self.usuario, nome_sugerido=sugerido)
         self.wait_window(dialogo)
         if dialogo.resultado:
             novo = pacientes.obter(dialogo.resultado)
@@ -361,7 +379,8 @@ class TelaConsultas(ctk.CTkScrollableFrame):
 
         try:
             lista = consultas.listar(
-                busca=self.var_busca.get(), situacao=self.var_filtro_situacao.get()
+                busca=self.var_busca.get(), situacao=self.var_filtro_situacao.get(),
+                profissional_id=self._profissional_do_medico(),
             )
         except sqlite3.Error as erro:
             messagebox.showerror("Erro no banco de dados", f"Não foi possível listar: {erro}")
@@ -445,15 +464,18 @@ class TelaConsultas(ctk.CTkScrollableFrame):
 
         try:
             if self.id_selecionado is None:
-                consultas.agendar(paciente_id, profissional_id, data_br, hora, obs)
+                acesso.agendar_consulta(
+                    self.usuario["id"], paciente_id, profissional_id, data_br, hora, obs
+                )
                 mensagem = (
                     "Consulta agendada com sucesso!\n"
                     "Situação: Aguardando pagamento. Ela só poderá ser confirmada depois que o "
                     "pagamento for registrado no módulo Financeiro."
                 )
             else:
-                consultas.alterar_dados(
-                    self.id_selecionado, paciente_id, profissional_id, data_br, hora, obs
+                acesso.alterar_consulta(
+                    self.usuario["id"], self.id_selecionado, paciente_id, profissional_id,
+                    data_br, hora, obs,
                 )
                 mensagem = "Dados da consulta atualizados com sucesso!"
         except ErroValidacao as erro:
@@ -471,7 +493,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
         if self.id_selecionado is None:
             return
         try:
-            consultas.confirmar(self.id_selecionado)
+            consultas.confirmar(self.usuario["id"], self.id_selecionado)
         except ErroValidacao as erro:  # ex.: pagamento ainda não registrado
             messagebox.showwarning("Não foi possível confirmar", str(erro))
             return
@@ -490,7 +512,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
         ):
             return
         try:
-            consultas.marcar_realizada(self.id_selecionado)
+            consultas.marcar_realizada(self.usuario["id"], self.id_selecionado)
             messagebox.showinfo("Sucesso", "Consulta registrada como realizada com sucesso.")
         except ErroValidacao as erro:
             messagebox.showwarning("Aviso", str(erro))
@@ -515,7 +537,7 @@ class TelaConsultas(ctk.CTkScrollableFrame):
             "Motivo do cancelamento", "Informe o motivo do cancelamento (opcional):"
         )
         try:
-            consultas.cancelar(self.id_selecionado, motivo or "")
+            acesso.cancelar_consulta(self.usuario["id"], self.id_selecionado, motivo or "")
             messagebox.showinfo("Sucesso", "Consulta cancelada com sucesso.")
         except ErroValidacao as erro:
             messagebox.showwarning("Aviso", str(erro))
