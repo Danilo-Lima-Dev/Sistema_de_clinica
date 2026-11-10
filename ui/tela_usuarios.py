@@ -9,9 +9,13 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from services import autenticacao
+from services import autenticacao, profissionais
+from services.autenticacao import PAPEIS, PAPEL_ADMIN, PAPEL_MEDICO
 from services.validacoes import ErroValidacao
 from ui import componentes, tema
+
+
+SEM_PROFISSIONAL = "(nenhum)"
 
 
 class TelaUsuarios(ctk.CTkFrame):
@@ -19,9 +23,10 @@ class TelaUsuarios(ctk.CTkFrame):
     PRECISA_USUARIO = True  # o App entrega o usuário logado
     COLUNAS = (
         ("id", "ID", 50),
-        ("nome", "Nome", 240),
+        ("nome", "Nome", 200),
         ("login", "Usuário", 160),
-        ("perfil", "Perfil", 150),
+        ("perfil", "Perfil", 130),
+        ("profissional", "Profissional (médico)", 240),
         ("situacao", "Situação", 100),
     )
 
@@ -34,7 +39,9 @@ class TelaUsuarios(ctk.CTkFrame):
         self.var_login = ctk.StringVar()
         self.var_senha = ctk.StringVar()
         self.var_mostrar = ctk.BooleanVar(value=False)
-        self.var_super = ctk.BooleanVar(value=False)
+        self.var_papel = ctk.StringVar(value=autenticacao.PAPEL_ATENDENTE)
+        self.var_profissional = ctk.StringVar(value=SEM_PROFISSIONAL)
+        self.profissionais = {}  # texto do combobox -> id do profissional
         self.var_ativo = ctk.BooleanVar(value=True)
 
         self.grid_columnconfigure(0, weight=1)
@@ -46,6 +53,7 @@ class TelaUsuarios(ctk.CTkFrame):
 
         self._montar_formulario()
         self._montar_lista()
+        self.recarregar_opcoes()
         self.atualizar_lista()
 
     # ------------------------------------------------------------ layout
@@ -74,11 +82,21 @@ class TelaUsuarios(ctk.CTkFrame):
         bloco.grid(row=0, column=2, sticky="ew", padx=(8, 0), pady=(0, 12))
         self.entrada_senha.configure(show="•")
 
+        bloco, self.combo_papel = componentes.campo_combobox(
+            grade, "Perfil *", valores=list(PAPEIS), variavel=self.var_papel,
+            comando=lambda _v: self._ao_mudar_papel(),
+        )
+        bloco.grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(0, 12))
+        bloco, self.combo_profissional = componentes.campo_combobox(
+            grade, "Profissional ligado (só para Médico)", valores=[SEM_PROFISSIONAL],
+            variavel=self.var_profissional, dica="quem é este médico",
+        )
+        bloco.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(8, 0), pady=(0, 12))
+
         opcoes = ctk.CTkFrame(cartao, fg_color="transparent")
         opcoes.pack(fill="x", padx=20, pady=(0, 6))
         for texto, variavel in (
             ("Mostrar senha", self.var_mostrar),
-            ("Super usuário (pode gerenciar usuários)", self.var_super),
             ("Usuário ativo", self.var_ativo),
         ):
             ctk.CTkCheckBox(
@@ -117,6 +135,27 @@ class TelaUsuarios(ctk.CTkFrame):
         self.rotulo_total.grid(row=1, column=0, sticky="w", padx=20, pady=(8, 14))
 
     # ------------------------------------------------------------- dados
+    def recarregar_opcoes(self):
+        """Atualiza a lista de profissionais ativos (chamada ao abrir a tela)."""
+        self.profissionais = {
+            f"{p['nome']} ({p['registro']})": p["id"]
+            for p in profissionais.listar(apenas_ativos=True)
+        }
+        self.combo_profissional.configure(values=[SEM_PROFISSIONAL, *self.profissionais])
+        self._ao_mudar_papel()
+
+    def _ao_mudar_papel(self):
+        """Só o papel Médico escolhe um profissional."""
+        medico = self.var_papel.get() == PAPEL_MEDICO
+        self.combo_profissional.configure(state="normal" if medico else "disabled")
+        if not medico:
+            self.var_profissional.set(SEM_PROFISSIONAL)
+
+    def _profissional_escolhido(self):
+        if self.var_papel.get() != PAPEL_MEDICO:
+            return None
+        return self.profissionais.get(self.var_profissional.get())
+
     def atualizar_lista(self):
         for item in self.tabela.get_children():
             self.tabela.delete(item)
@@ -128,12 +167,13 @@ class TelaUsuarios(ctk.CTkFrame):
         except sqlite3.Error as erro:
             messagebox.showerror("Erro no banco de dados", f"Não foi possível listar: {erro}")
             return
+        nomes = {p["id"]: f"{p['nome']} ({p['registro']})" for p in profissionais.listar()}
         for u in lista:
             self.tabela.insert(
                 "", "end", iid=str(u["id"]),
                 values=(
-                    u["id"], u["nome"], u["login"],
-                    "Super usuário" if u["superusuario"] else "Usuário",
+                    u["id"], u["nome"], u["login"], u["papel"],
+                    nomes.get(u["profissional_id"], "—"),
                     "Ativo" if u["ativo"] else "Inativo",
                 ),
             )
@@ -144,11 +184,13 @@ class TelaUsuarios(ctk.CTkFrame):
         if not selecionados:
             return
         self.id_selecionado = int(selecionados[0])
-        _id, nome, login, perfil, situacao = self.tabela.item(selecionados[0], "values")
+        _id, nome, login, perfil, prof, situacao = self.tabela.item(selecionados[0], "values")
         self.var_nome.set(nome)
         self.var_login.set(login)
         self.var_senha.set("")  # a senha atual nunca é mostrada
-        self.var_super.set(perfil == "Super usuário")
+        self.var_papel.set(perfil)
+        self._ao_mudar_papel()
+        self.var_profissional.set(prof if prof in self.profissionais else SEM_PROFISSIONAL)
         self.var_ativo.set(situacao == "Ativo")
         self.titulo_form.configure(
             text=f"Editando usuário #{self.id_selecionado} (senha em branco mantém a atual)"
@@ -166,13 +208,31 @@ class TelaUsuarios(ctk.CTkFrame):
             if self.id_selecionado is None:
                 autenticacao.cadastrar_usuario_por(
                     executor, self.var_nome.get(), self.var_login.get(),
-                    self.var_senha.get(), self.var_super.get(),
+                    self.var_senha.get(), self.var_papel.get() == PAPEL_ADMIN,
+                    papel=self.var_papel.get(), profissional_id=self._profissional_escolhido(),
                 )
                 mensagem = "Usuário cadastrado com sucesso."
             else:
+                dados = (
+                    self.var_nome.get(), self.var_login.get(), self.var_senha.get(),
+                    self.var_ativo.get(),
+                )
+                extra = {
+                    "papel": self.var_papel.get(),
+                    "profissional_id": self._profissional_escolhido(),
+                }
+                if not autenticacao.houve_mudanca_usuario(
+                    executor, self.id_selecionado, *dados, **extra
+                ):
+                    messagebox.showinfo("Usuários", "Nenhuma alteração para salvar.")
+                    return
+                if not messagebox.askyesno(
+                    "Confirmar alteração", "Salvar as alterações deste usuário?"
+                ):
+                    return
                 autenticacao.atualizar_usuario(
-                    executor, self.id_selecionado, self.var_nome.get(), self.var_login.get(),
-                    self.var_senha.get(), self.var_ativo.get(), self.var_super.get(),
+                    executor, self.id_selecionado, *dados,
+                    superusuario=self.var_papel.get() == PAPEL_ADMIN, **extra,
                 )
                 mensagem = "Usuário atualizado com sucesso."
         except ErroValidacao as erro:
@@ -211,7 +271,9 @@ class TelaUsuarios(ctk.CTkFrame):
         self.id_selecionado = None
         for variavel in (self.var_nome, self.var_login, self.var_senha):
             variavel.set("")
-        self.var_super.set(False)
+        self.var_papel.set(autenticacao.PAPEL_ATENDENTE)
+        self.var_profissional.set(SEM_PROFISSIONAL)
+        self._ao_mudar_papel()
         self.var_ativo.set(True)
         self.tabela.selection_remove(self.tabela.selection())
         self.titulo_form.configure(text="Novo usuário")

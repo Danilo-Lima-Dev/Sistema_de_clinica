@@ -58,12 +58,12 @@ class TestPapeis(unittest.TestCase):
             self._cadastrar_medico("m1", id_prof=9999)
         profissionais.alternar_ativo(self.id_prof)  # desativa
         with self.assertRaises(ErroValidacao):
-            self._cadastrar_medico("m2")
+            self._cadastrar_medico("med2")
 
     def test_profissional_nao_pode_ter_dois_usuarios(self):
-        self._cadastrar_medico("m1")
+        self._cadastrar_medico("med1")
         with self.assertRaises(ErroValidacao):
-            self._cadastrar_medico("m2")
+            self._cadastrar_medico("med2")
 
     def test_so_medico_tem_profissional(self):
         with self.assertRaises(ErroValidacao):

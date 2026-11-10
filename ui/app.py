@@ -18,6 +18,7 @@ from ui.tela_agenda import TelaAgenda
 from ui.tela_consultas import TelaConsultas
 from ui.tela_especialidades import TelaEspecialidades
 from ui.tela_financeiro import TelaFinanceiro
+from ui.tela_historico import TelaHistoricoClinico
 from ui.tela_login import TelaLogin
 from ui.tela_pacientes import TelaPacientes
 from ui.tela_profissionais import TelaProfissionais
@@ -37,6 +38,7 @@ class App(ctk.CTk):
         regras_menu.FINANCEIRO: TelaFinanceiro,
         regras_menu.PRONTUARIO: TelaProntuario,
         regras_menu.DOCUMENTOS: TelaDocumentos,
+        regras_menu.HISTORICO: TelaHistoricoClinico,
         regras_menu.USUARIOS: TelaUsuarios,
     }
 

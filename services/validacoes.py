@@ -262,3 +262,54 @@ def validar_data_hora_futura(data_br, hora_str):
     if agendamento < datetime.now():
         raise ErroValidacao("Não é permitido agendar consultas em data e hora passadas.")
 
+
+
+
+# --------------------------------------------- nomes, registro profissional, login
+LIMITE_NOME = 100
+_LETRAS_NOME = re.compile(r"^[^\W\d_]+(?:[ '.\-]+[^\W\d_]+)*\.?$", re.UNICODE)
+_LOGIN = re.compile(r"^[a-z0-9._-]{3,30}$")
+
+
+def validar_nome(nome, rotulo="O nome"):
+    """Nome de pessoa/profissional limpo: 2+ letras, até 100, só letras, espaço, ' . e -.
+
+    Espaços repetidos viram um só. `rotulo` entra na mensagem ("O nome do profissional ...").
+    """
+    nome = re.sub(r"\s+", " ", (nome or "").strip())
+    if not nome:
+        raise ErroValidacao(f"{rotulo} é obrigatório.")
+    if len(nome) > LIMITE_NOME:
+        raise ErroValidacao(f"{rotulo} deve ter no máximo {LIMITE_NOME} caracteres.")
+    if sum(c.isalpha() for c in nome) < 2:
+        raise ErroValidacao(f"{rotulo} deve ter pelo menos 2 letras.")
+    if not _LETRAS_NOME.match(nome):
+        raise ErroValidacao(f"{rotulo} só pode ter letras, espaços, apóstrofo, ponto e hífen.")
+    return nome
+
+
+def validar_registro(registro):
+    """Registro profissional (CRM, CREFITO...): 4 a 30 caracteres e pelo menos um número."""
+    registro = re.sub(r"\s+", " ", (registro or "").strip())
+    if not registro:
+        raise ErroValidacao("O registro profissional (CRM, CREFITO etc.) é obrigatório.")
+    if not 4 <= len(registro) <= 30:
+        raise ErroValidacao("O registro profissional deve ter entre 4 e 30 caracteres.")
+    if not any(c.isdigit() for c in registro) or not re.match(r"^[\w ./\-]+$", registro):
+        raise ErroValidacao(
+            "Registro profissional inválido. Use letras e números, ex.: CRM 12345/SP."
+        )
+    return registro
+
+
+def validar_login(login):
+    """Login em minúsculas: 3 a 30 caracteres entre letras, números, ponto, hífen e sublinhado."""
+    login = (login or "").strip().lower()
+    if not login:
+        raise ErroValidacao("O usuário é obrigatório.")
+    if not _LOGIN.match(login):
+        raise ErroValidacao(
+            "Usuário inválido: use de 3 a 30 caracteres (letras, números, ponto, hífen ou "
+            "sublinhado), sem espaços."
+        )
+    return login

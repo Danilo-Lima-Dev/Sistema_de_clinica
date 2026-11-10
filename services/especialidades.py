@@ -11,16 +11,24 @@ import sqlite3
 
 import database
 from services import autenticacao, financeiro
-from services.validacoes import ErroValidacao, normalizar
+from services.validacoes import ErroValidacao, normalizar, validar_nome
 
 MSG_VALOR_SO_SUPER = "Somente o super usuário pode definir ou alterar o valor da consulta."
 
 
 def _nome_valido(nome):
-    nome = (nome or "").strip()
-    if not nome:
-        raise ErroValidacao("O nome da especialidade é obrigatório.")
-    return nome
+    return validar_nome(nome, "O nome da especialidade")
+
+
+def houve_mudanca(id_especialidade, nome, valor_centavos=None):
+    """Valida e diz se o nome (ou o valor, se informado) difere do gravado. Não grava nada."""
+    nome = _nome_valido(nome)
+    atual = obter(id_especialidade)
+    if atual is None:
+        raise ErroValidacao("Especialidade não encontrada. Atualize a lista e tente de novo.")
+    if nome != atual["nome"]:
+        return True
+    return valor_centavos is not None and valor_centavos != atual["valor_consulta"]
 
 
 def listar(busca="", limite=None, offset=0):

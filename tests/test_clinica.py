@@ -237,12 +237,12 @@ class TestSuperUsuario(unittest.TestCase):
 
     def test_nao_remove_o_ultimo_superusuario(self):
         with self.assertRaises(ErroValidacao):  # se desativar
-            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "S", "super", ativo=False, superusuario=True)
+            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "Super", "super", ativo=False, superusuario=True)
         with self.assertRaises(ErroValidacao):  # se deixar de ser super
-            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "S", "super", ativo=True, superusuario=False)
+            autenticacao.atualizar_usuario(self.super["id"], self.super["id"], "Super", "super", ativo=True, superusuario=False)
         # com outro super ativo, já pode
         autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", superusuario=True)
-        autenticacao.atualizar_usuario(self.comum["id"], self.super["id"], "S", "super", superusuario=False)
+        autenticacao.atualizar_usuario(self.comum["id"], self.super["id"], "Super", "super", superusuario=False)
 
     def test_usuario_desativado_nao_entra(self):
         autenticacao.atualizar_usuario(self.super["id"], self.comum["id"], "Admin", "admin", ativo=False)

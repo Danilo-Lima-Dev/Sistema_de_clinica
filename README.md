@@ -56,6 +56,23 @@ junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
   usuário, nem deixar o sistema sem nenhum super usuário ativo.
 - Bancos antigos recebem a coluna `superusuario` automaticamente na próxima execução.
 
+## Papéis, histórico clínico e dados de teste
+
+- **Papéis** (campo *Perfil* na tela Usuários): **Administrador** (gerencia tudo, menos dados clínicos),
+  **Atendente** (recepção: pacientes, consultas, pagamento; só lê documentos e entrega a 2ª via com registro)
+  e **Médico** (ligado a um profissional; atende, emite atestado/receituário e usa o histórico clínico).
+  Atendente e Administrador **não emitem** atestado nem receituário.
+- **Histórico clínico por paciente** (menu *Histórico clínico*, `services/historico_clinico.py`): só o papel
+  Médico lê e escreve; só o médico que escreveu uma anotação a altera, e a versão anterior fica guardada
+  ("Versões anteriores"). Nada é apagado; paciente com histórico não pode ser excluído (use *Desativar*).
+- **Validação na alteração de dados**: nomes (2+ letras, só letras/espaço/`'`/`.`/`-`, até 100), registro profissional
+  (4 a 30 caracteres, com número), login (3 a 30: letras, números, `.`, `-`, `_`), senha (6 a 128, não igual ao login, sem espaço nas
+  pontas), observações da consulta (até 500). Ao salvar uma alteração, as telas dizem *"Nenhuma alteração para salvar"* se nada mudou
+  e pedem confirmação. Consulta paga ou confirmada não troca de paciente nem de médico.
+- **Dados fictícios para teste**: `python popular_dados_teste.py` (num banco novo) cria pacientes, profissionais, consultas, documentos
+  e anotações de exemplo. Logins: `super`/`super123` (Administrador); `admin`/`admin123` e `recepcao`/`recepcao123` (Atendente);
+  `helena`, `rafael` e `luiza` / `medico123` (Médico).
+
 ## Personalizar a aparência
 
 Nome do programa, frase de apresentação, cores, fonte e modo claro/escuro ficam todos em `ui/tema.py`.
@@ -84,7 +101,9 @@ python -m unittest discover -s tests -v
 | `ui/tema.py` | Nome do programa, cores, fontes e modo claro/escuro (personalização visual). |
 | `ui/componentes.py` | Peças visuais reutilizadas: cartão, cabeçalho, campo de texto, combobox, botão e tabela. |
 | `ui/tela_login.py` | Tela de login. |
-| `ui/tela_usuarios.py` | Tela "Usuários" (só para o super usuário): cadastrar, alterar e excluir usuários (nome, login, senha, perfil e situação). |
+| `ui/tela_usuarios.py` | Tela "Usuários" (só para o Administrador): cadastrar, alterar e excluir usuários (nome, login, senha, perfil, profissional do médico e situação). |
+| `services/historico_clinico.py`, `ui/tela_historico.py` | Histórico clínico por paciente (só Médico). |
+| `popular_dados_teste.py` | Carrega dados fictícios de teste. |
 | `ui/app.py` | Janela principal: login e, depois, menu lateral em cartões + telas com atualização automática. |
 | `ui/tela_pacientes.py` | Tela de pacientes: formulário, busca, tabela, mensagens e máscaras de digitação. |
 | `ui/tela_profissionais.py` | Tela de profissionais: formulário, seleção de especialidades, busca, tabela e inativação/exclusão. |

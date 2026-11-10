@@ -31,7 +31,9 @@ class TestMenuPorPapel(unittest.TestCase):
 
     def test_medico(self):
         telas = menu.telas_do_papel(PAPEL_MEDICO)
-        self.assertEqual(set(telas), {menu.CONSULTAS, menu.AGENDA, menu.PRONTUARIO})
+        self.assertEqual(
+            set(telas), {menu.CONSULTAS, menu.AGENDA, menu.PRONTUARIO, menu.HISTORICO}
+        )
         for proibida in (menu.FINANCEIRO, menu.USUARIOS, menu.PROFISSIONAIS, menu.PACIENTES):
             self.assertNotIn(proibida, telas)
 

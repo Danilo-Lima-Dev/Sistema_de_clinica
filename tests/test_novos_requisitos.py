@@ -245,7 +245,7 @@ class TestExclusoesEBuscas(Base):  # itens 9, 10, 11
 
     def test_limite_para_autocompletar(self):
         for i in range(15):
-            pacientes.cadastrar(f"Maria {i:02d}", cpf_valido_de(f"{i + 100000001:09d}"), "01/01/2000")
+            pacientes.cadastrar(f"Maria {chr(65 + i)}", cpf_valido_de(f"{i + 100000001:09d}"), "01/01/2000")
         self.assertEqual(len(pacientes.listar("maria", limite=10)), 10)
         self.assertEqual(len(pacientes.listar("maria", limite=10, offset=10)), 5)
 

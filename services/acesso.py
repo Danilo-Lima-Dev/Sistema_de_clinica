@@ -33,12 +33,19 @@ MSG_AGENDA = "Somente o médico (na sua agenda) ou o administrador bloqueiam e l
 MSG_AGENDA_DE_OUTRO = "O médico só bloqueia ou libera a sua própria agenda."
 
 
-def _guardar(funcao, papeis, mensagem):
-    """Devolve uma versão da função que exige um dos `papeis` antes de executar."""
+def _guardar(funcao, papeis, mensagem, repassar_executor=False):
+    """Devolve uma versão da função que exige um dos `papeis` antes de executar.
+
+    `repassar_executor=True`: a função de serviço também recebe `executor_id=` (as de
+    especialidade usam para conferir quem pode mexer no valor da consulta). Assim a tela
+    chama só `acesso.xxx(usuario_id, ...)`, sem repetir o id.
+    """
 
     @functools.wraps(funcao)
     def protegida(executor_id, *args, **kwargs):
         autenticacao.exigir_papel(executor_id, *papeis, mensagem=mensagem)
+        if repassar_executor:
+            kwargs["executor_id"] = executor_id
         return funcao(*args, **kwargs)
 
     return protegida
@@ -72,8 +79,12 @@ alternar_ativo_profissional = _guardar(profissionais.alternar_ativo, SO_ADMIN, M
 excluir_profissional = _guardar(profissionais.excluir, SO_ADMIN, MSG_PROFISSIONAL)
 
 # ------------------------------------------------------------- especialidades
-cadastrar_especialidade = _guardar(especialidades.cadastrar, SO_ADMIN, MSG_ESPECIALIDADE)
-atualizar_especialidade = _guardar(especialidades.atualizar, SO_ADMIN, MSG_ESPECIALIDADE)
+cadastrar_especialidade = _guardar(
+    especialidades.cadastrar, SO_ADMIN, MSG_ESPECIALIDADE, repassar_executor=True
+)
+atualizar_especialidade = _guardar(
+    especialidades.atualizar, SO_ADMIN, MSG_ESPECIALIDADE, repassar_executor=True
+)
 excluir_especialidade = _guardar(especialidades.excluir, SO_ADMIN, MSG_ESPECIALIDADE)
 
 # ------------------------------------------------------------------ consultas

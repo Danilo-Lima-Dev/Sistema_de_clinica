@@ -152,15 +152,20 @@ class TelaEspecialidades(ctk.CTkFrame):
             elif self.eh_super and self.id_selecionado is None:
                 valor = 0
             if self.id_selecionado is None:
-                acesso.cadastrar_especialidade(
-                    self.usuario["id"], self.var_nome.get(), valor or 0,
-                    executor_id=self.usuario["id"],
-                )
+                acesso.cadastrar_especialidade(self.usuario["id"], self.var_nome.get(), valor or 0)
                 mensagem = "Especialidade cadastrada com sucesso."
             else:
+                if not especialidades.houve_mudanca(
+                    self.id_selecionado, self.var_nome.get(), valor
+                ):
+                    messagebox.showinfo("Especialidades", "Nenhuma alteração para salvar.")
+                    return
+                if not messagebox.askyesno(
+                    "Confirmar alteração", "Salvar as alterações desta especialidade?"
+                ):
+                    return
                 acesso.atualizar_especialidade(
-                    self.usuario["id"], self.id_selecionado, self.var_nome.get(), valor,
-                    executor_id=self.usuario["id"],
+                    self.usuario["id"], self.id_selecionado, self.var_nome.get(), valor
                 )
                 mensagem = "Especialidade atualizada com sucesso."
         except ErroValidacao as erro:

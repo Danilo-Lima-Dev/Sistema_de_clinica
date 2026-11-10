@@ -230,6 +230,15 @@ class TelaProfissionais(ctk.CTkFrame):
                 acesso.cadastrar_profissional(self.usuario["id"], *dados)
                 mensagem = "Profissional cadastrado com sucesso."
             else:
+                if not profissionais.houve_mudanca(
+                    self.id_selecionado, *dados, ativo=self.ativo_selecionado
+                ):
+                    messagebox.showinfo("Profissionais", "Nenhuma alteração para salvar.")
+                    return
+                if not messagebox.askyesno(
+                    "Confirmar alteração", "Salvar as alterações nos dados deste profissional?"
+                ):
+                    return
                 acesso.atualizar_profissional(
                     self.usuario["id"], self.id_selecionado, *dados, ativo=self.ativo_selecionado
                 )

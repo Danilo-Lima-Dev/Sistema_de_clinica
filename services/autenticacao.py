@@ -10,7 +10,7 @@ import os
 import sqlite3
 
 import database
-from services.validacoes import ErroValidacao
+from services.validacoes import ErroValidacao, validar_login, validar_nome
 
 # Quantas vezes o PBKDF2 repete o cálculo (quanto maior, mais difícil de quebrar).
 ITERACOES = 200_000
@@ -56,20 +56,27 @@ def conferir_senha(senha, senha_hash):
 # --------------------------------------------------------------- usuários
 def _validar_nome_login(nome, login):
     """Limpa e confere nome e login. Devolve (nome, login)."""
-    nome = (nome or "").strip()
-    login = (login or "").strip().lower()  # login não diferencia maiúsculas
-    if not nome:
-        raise ErroValidacao("O nome é obrigatório.")
-    if not login:
-        raise ErroValidacao("O usuário é obrigatório.")
+    nome = validar_nome(nome, "O nome")
+    login = validar_login(login)  # login não diferencia maiúsculas
     return nome, login
 
 
-def _validar_senha(senha):
-    if len(senha or "") < TAMANHO_MINIMO_SENHA:
+TAMANHO_MAXIMO_SENHA = 128
+
+
+def _validar_senha(senha, login=None):
+    """Senha: 6 a 128 caracteres, sem espaço no começo/fim e diferente do login."""
+    senha = senha or ""
+    if len(senha) < TAMANHO_MINIMO_SENHA:
         raise ErroValidacao(
             f"A senha deve ter pelo menos {TAMANHO_MINIMO_SENHA} caracteres."
         )
+    if len(senha) > TAMANHO_MAXIMO_SENHA:
+        raise ErroValidacao(f"A senha deve ter no máximo {TAMANHO_MAXIMO_SENHA} caracteres.")
+    if senha != senha.strip():
+        raise ErroValidacao("A senha não pode começar nem terminar com espaço.")
+    if login and senha.lower() == login:
+        raise ErroValidacao("A senha não pode ser igual ao usuário (login).")
 
 
 def _definir_papel(papel, superusuario):
@@ -113,7 +120,7 @@ def cadastrar_usuario(nome, login, senha, superusuario=False, papel=None, profis
     O papel manda: a coluna antiga `superusuario` fica 1 só para o Administrador.
     """
     nome, login = _validar_nome_login(nome, login)
-    _validar_senha(senha)
+    _validar_senha(senha, login)
     papel = _definir_papel(papel, superusuario)
     try:
         with database.transacao() as con:
@@ -198,7 +205,7 @@ def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True
     _exigir_superusuario(executor_id)
     nome, login = _validar_nome_login(nome, login)
     if senha:
-        _validar_senha(senha)
+        _validar_senha(senha, login)
     papel = _definir_papel(papel, superusuario)
     ativo, superusuario = (1 if ativo else 0), (1 if papel == PAPEL_ADMIN else 0)
 
@@ -232,6 +239,34 @@ def atualizar_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True
             con.execute(f"UPDATE usuario SET {campos} WHERE id = ?", (*valores, id_usuario))
     except sqlite3.IntegrityError:
         raise ErroValidacao("Já existe um usuário com esse login.") from None
+
+
+def houve_mudanca_usuario(executor_id, id_usuario, nome, login, senha="", ativo=True,
+                          papel=None, profissional_id=None):
+    """Valida os dados e diz se diferem dos gravados (sem gravar). Só Administrador.
+
+    Senha preenchida conta como mudança. Serve para a tela avisar "Nenhuma alteração".
+    """
+    _exigir_superusuario(executor_id)
+    nome, login = _validar_nome_login(nome, login)
+    if senha:
+        _validar_senha(senha, login)
+    papel = _definir_papel(papel, False)
+    with database.transacao() as con:
+        atual = con.execute(
+            "SELECT nome, login, ativo, papel, profissional_id FROM usuario WHERE id = ?",
+            (id_usuario,),
+        ).fetchone()
+        if atual is None:
+            raise ErroValidacao("Usuário não encontrado.")
+        profissional_id = _validar_vinculo_medico(
+            con, papel, profissional_id, ignorar_usuario_id=id_usuario
+        )
+    return bool(
+        senha or nome != atual["nome"] or login != atual["login"]
+        or (1 if ativo else 0) != atual["ativo"] or papel != atual["papel"]
+        or profissional_id != atual["profissional_id"]
+    )
 
 
 def excluir_usuario(executor_id, id_usuario):

@@ -278,3 +278,29 @@ class DialogoEntrega(_Dialogo):
             return
         self.resultado = (self.var_forma.get(), nome, self.var_vinculo.get(), documento)
         self.destroy()
+
+
+class DialogoRevisoes(_Dialogo):
+    """Versões anteriores de uma anotação do histórico clínico (somente leitura)."""
+
+    def __init__(self, janela, id_anotacao, revisoes):
+        super().__init__(janela, "Versões anteriores", 560, 520)
+        componentes.cabecalho(
+            self, f"Anotação #{id_anotacao}",
+            f"{len(revisoes)} versão(ões) anterior(es), da mais recente para a mais antiga.",
+        ).pack(anchor="w", padx=24, pady=(20, 10))
+        caixa = ctk.CTkTextbox(
+            self, corner_radius=tema.RAIO_BOTAO, border_width=1, border_color=tema.COR_BORDA,
+            fg_color=tema.COR_CARTAO, text_color=tema.COR_TEXTO, font=tema.fonte(13), wrap="word",
+        )
+        caixa.pack(fill="both", expand=True, padx=24, pady=(0, 10))
+        blocos = []
+        for r in revisoes:
+            quando = r["alterado_em"]
+            quando = f"{quando[8:10]}/{quando[5:7]}/{quando[:4]} {quando[11:16]}"
+            blocos.append(f"Substituída em {quando} por {r['alterado_por']}:\n{r['texto_anterior']}")
+        caixa.insert("1.0", ("\n\n" + "-" * 40 + "\n\n").join(blocos) or "Nenhuma versão anterior.")
+        caixa.configure(state="disabled")
+        botoes = ctk.CTkFrame(self, fg_color="transparent")
+        botoes.pack(fill="x", padx=24, pady=(0, 20))
+        componentes.botao(botoes, "Fechar", self.destroy, estilo="secundario", largura=110).pack(side="left")

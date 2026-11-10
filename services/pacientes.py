@@ -19,14 +19,13 @@ from services.validacoes import (
     motivo_telefone_invalido,
     normalizar,
     somente_digitos,
+    validar_nome,
 )
 
 
 def _validar(nome, cpf, nascimento, telefone, email):
     """Valida os campos e devolve os dados limpos, prontos para gravar."""
-    nome = (nome or "").strip()
-    if not nome:
-        raise ErroValidacao("O nome é obrigatório.")
+    nome = validar_nome(nome, "O nome do paciente")
 
     cpf = somente_digitos(cpf)
     if not cpf:
@@ -94,6 +93,19 @@ def atualizar(id_paciente, nome, cpf, nascimento, telefone="", email=""):
         raise ErroValidacao("Já existe outro paciente cadastrado com este CPF.")
 
 
+def houve_mudanca(id_paciente, nome, cpf, nascimento, telefone="", email=""):
+    """Valida os dados e diz se são diferentes dos gravados (sem gravar nada).
+
+    Serve para a tela avisar "Nenhuma alteração para salvar" e para pedir confirmação.
+    Levanta ErroValidacao se os dados forem inválidos ou o paciente não existir.
+    """
+    novos = _validar(nome, cpf, nascimento, telefone, email)
+    atual = obter(id_paciente)
+    if atual is None:
+        raise ErroValidacao("Paciente não encontrado. Atualize a lista e tente de novo.")
+    return any(atual[campo] != valor for campo, valor in novos.items())
+
+
 def excluir(id_paciente):
     """Exclui um paciente, se ele não tiver consultas vinculadas (RN04)."""
     with database.transacao() as con:
@@ -105,6 +117,17 @@ def excluir(id_paciente):
                 f"Não é possível excluir: o paciente tem {total} consulta(s) vinculada(s). "
                 "Para preservar o histórico, use 'Desativar' (o paciente sai das buscas "
                 "do agendamento, mas os dados continuam guardados)."
+            )
+        anotacoes = con.execute(
+            "SELECT COUNT(*) FROM historico_clinico WHERE paciente_id = ?", (id_paciente,)
+        ).fetchone()[0]
+        documentos = con.execute(
+            "SELECT COUNT(*) FROM documento_emitido WHERE paciente_id = ?", (id_paciente,)
+        ).fetchone()[0]
+        if anotacoes or documentos:
+            raise ErroValidacao(
+                "Não é possível excluir: o paciente tem histórico clínico ou documentos emitidos "
+                "(registros médicos não são apagados). Use 'Desativar'."
             )
         cursor = con.execute("DELETE FROM paciente WHERE id = ?", (id_paciente,))
         if cursor.rowcount == 0:

@@ -13,6 +13,7 @@ PROFISSIONAIS = "profissionais"
 ESPECIALIDADES = "especialidades"
 FINANCEIRO = "financeiro"
 PRONTUARIO = "prontuario"
+HISTORICO = "historico"
 DOCUMENTOS = "documentos"
 USUARIOS = "usuarios"
 
@@ -21,7 +22,7 @@ MENU_POR_PAPEL = {
         CONSULTAS, AGENDA, PACIENTES, PROFISSIONAIS, ESPECIALIDADES, FINANCEIRO, USUARIOS,
     ),
     PAPEL_ATENDENTE: (CONSULTAS, AGENDA, PACIENTES, DOCUMENTOS),
-    PAPEL_MEDICO: (CONSULTAS, AGENDA, PRONTUARIO),
+    PAPEL_MEDICO: (CONSULTAS, AGENDA, PRONTUARIO, HISTORICO),
 }
 
 # Ações que mudam o que aparece nas telas (botões). O back-end barra de qualquer jeito.

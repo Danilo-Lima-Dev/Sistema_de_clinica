@@ -64,6 +64,13 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
 
     hora_fim = calcular_hora_fim(hora_inicio, 30)
 
+    observacoes = (observacoes or "").strip()
+    if len(observacoes) > LIMITE_OBSERVACOES:
+        raise ErroValidacao(
+            f"As observações são longas demais ({len(observacoes)} caracteres; "
+            f"o máximo é {LIMITE_OBSERVACOES})."
+        )
+
     # Horário indisponível (fora do expediente, folga ou bloqueio) não aceita agendamento.
     motivo = agenda.motivo_indisponivel(con, profissional_id, data_iso, hora_inicio, hora_fim)
     if motivo:
@@ -98,6 +105,7 @@ def _validar(con, paciente_id, profissional_id, data_br, hora_inicio, observacoe
     }
 
 
+LIMITE_OBSERVACOES = 500
 MSG_CONFLITO = "O profissional já possui uma consulta ativa agendada neste mesmo dia e horário."
 
 
@@ -159,6 +167,13 @@ def alterar_dados(id_consulta, paciente_id, profissional_id, data_br, hora_inici
             if atual["situacao"] == "Realizada":
                 raise ErroValidacao("Consultas já realizadas não podem ser alteradas.")
 
+            if atual["pagamento_status"] == "Pago" or atual["situacao"] == "Confirmada":
+                if (paciente_id != atual["paciente_id"]
+                        or profissional_id != atual["profissional_id"]):
+                    raise ErroValidacao(
+                        "Consulta com pagamento registrado ou confirmada não pode trocar de "
+                        "paciente ou de médico. Cancele e faça um novo agendamento."
+                    )
             dados = _validar(
                 con, paciente_id, profissional_id, data_br, hora_inicio,
                 observacoes=observacoes, ignorar_id_consulta=id_consulta,

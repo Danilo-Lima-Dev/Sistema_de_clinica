@@ -240,6 +240,13 @@ class TelaPacientes(ctk.CTkFrame):
                 acesso.cadastrar_paciente(self.usuario["id"], *dados)
                 mensagem = "Paciente cadastrado com sucesso."
             else:
+                if not pacientes.houve_mudanca(self.id_selecionado, *dados):
+                    messagebox.showinfo("Pacientes", "Nenhuma alteração para salvar.")
+                    return
+                if not messagebox.askyesno(
+                    "Confirmar alteração", "Salvar as alterações nos dados deste paciente?"
+                ):
+                    return
                 acesso.atualizar_paciente(self.usuario["id"], self.id_selecionado, *dados)
                 mensagem = "Dados do paciente atualizados com sucesso."
         except ErroValidacao as erro:

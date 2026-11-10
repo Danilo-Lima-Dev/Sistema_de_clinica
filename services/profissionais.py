@@ -15,6 +15,8 @@ from services.validacoes import (
     motivo_telefone_invalido,
     normalizar,
     somente_digitos,
+    validar_nome,
+    validar_registro,
 )
 
 
@@ -47,13 +49,8 @@ def _resolver_especialidade_id(con, especialidade):
 
 def _validar(con, nome, registro, especialidade, telefone=""):
     """Valida os campos de profissional e devolve os dados tratados."""
-    nome = (nome or "").strip()
-    if not nome:
-        raise ErroValidacao("O nome do profissional é obrigatório.")
-
-    registro = (registro or "").strip()
-    if not registro:
-        raise ErroValidacao("O registro profissional (CRM, CREFITO etc.) é obrigatório.")
+    nome = validar_nome(nome, "O nome do profissional")
+    registro = validar_registro(registro)
 
     esp_id = _resolver_especialidade_id(con, especialidade)
 
@@ -106,6 +103,41 @@ def atualizar(id_profissional, nome, registro, especialidade, telefone="", ativo
         raise ErroValidacao("Já existe outro profissional cadastrado com este registro profissional.")
 
 
+def houve_mudanca(id_profissional, nome, registro, especialidade, telefone="", ativo=None):
+    """Valida os dados e diz se são diferentes dos gravados (sem gravar nada).
+
+    Uma especialidade digitada que ainda não existe conta como mudança (e NÃO é criada aqui).
+    """
+    atual = obter(id_profissional)
+    if atual is None:
+        raise ErroValidacao("Profissional não encontrado. Atualize a lista e tente de novo.")
+    nome = validar_nome(nome, "O nome do profissional")
+    registro = validar_registro(registro)
+    telefone = somente_digitos(telefone)
+    if telefone:
+        motivo = motivo_telefone_invalido(telefone)
+        if motivo:
+            raise ErroValidacao(motivo)
+    with database.transacao() as con:
+        if isinstance(especialidade, int):
+            esp_id = especialidade
+        elif isinstance(especialidade, str) and especialidade.strip():
+            linha = con.execute(
+                "SELECT id FROM especialidade WHERE nome = ? COLLATE NOCASE",
+                (especialidade.strip(),),
+            ).fetchone()
+            esp_id = linha["id"] if linha else None  # nova: certamente é uma mudança
+        else:
+            raise ErroValidacao("A especialidade é obrigatória.")
+    mudou = (
+        nome != atual["nome"] or registro != atual["registro"]
+        or esp_id != atual["especialidade_id"] or (telefone or None) != atual["telefone"]
+    )
+    if ativo is not None and (1 if ativo else 0) != atual["ativo"]:
+        mudou = True
+    return mudou
+
+
 def alternar_ativo(id_profissional):
     """Alterna o status do profissional entre Ativo e Inativo."""
     with database.transacao() as con:
@@ -125,6 +157,14 @@ def alternar_ativo(id_profissional):
 def excluir(id_profissional):
     """Exclui o profissional se não houver consultas vinculadas a ele (RN04)."""
     with database.transacao() as con:
+        usuario = con.execute(
+            "SELECT nome FROM usuario WHERE profissional_id = ?", (id_profissional,)
+        ).fetchone()
+        if usuario:
+            raise ErroValidacao(
+                f"Não é possível excluir: o profissional está ligado ao usuário '{usuario['nome']}'. "
+                "Exclua ou altere esse usuário antes (ou use 'Inativar')."
+            )
         total = con.execute(
             "SELECT COUNT(*) FROM consulta WHERE profissional_id = ?",
             (id_profissional,),

@@ -109,6 +109,31 @@ CREATE TABLE IF NOT EXISTS entrega_documento (
     FOREIGN KEY (documento_id) REFERENCES documento_emitido (id)
 );
 
+-- Histórico clínico por paciente: anotações do médico (só médicos leem e escrevem).
+CREATE TABLE IF NOT EXISTS historico_clinico (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    paciente_id    INTEGER NOT NULL,
+    consulta_id    INTEGER,
+    texto          TEXT NOT NULL,
+    autor_id       INTEGER NOT NULL,        -- usuário (médico) que escreveu: só ele altera
+    autor_nome     TEXT NOT NULL,
+    criado_em      TEXT NOT NULL,           -- AAAA-MM-DD HH:MM:SS
+    atualizado_em  TEXT,
+    atualizado_por TEXT,
+    FOREIGN KEY (paciente_id) REFERENCES paciente (id),
+    FOREIGN KEY (consulta_id) REFERENCES consulta (id)
+);
+
+-- Versões anteriores de cada anotação: nada se perde quando o médico altera o texto.
+CREATE TABLE IF NOT EXISTS historico_clinico_revisao (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    historico_id   INTEGER NOT NULL,
+    texto_anterior TEXT NOT NULL,
+    alterado_em    TEXT NOT NULL,
+    alterado_por   TEXT NOT NULL,
+    FOREIGN KEY (historico_id) REFERENCES historico_clinico (id)
+);
+
 -- Histórico do financeiro: quem alterou valor ou pagamento, e quando.
 CREATE TABLE IF NOT EXISTS financeiro_historico (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
