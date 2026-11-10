@@ -12,7 +12,8 @@ from tkinter import messagebox, simpledialog
 
 import customtkinter as ctk
 
-from services import acesso, agenda, consultas, profissionais
+from services import acesso, agenda, autenticacao, consultas, profissionais
+from services import menu as regras_menu
 from services.validacoes import (
     ErroValidacao,
     data_br_para_date,
@@ -44,6 +45,11 @@ class TelaAgenda(ctk.CTkFrame):
 
         self._montar_filtros()
         self._montar_grade()
+        if usuario_logado["papel"] == autenticacao.PAPEL_MEDICO:  # abre direto na agenda dele
+            proprio = profissionais.obter(usuario_logado["profissional_id"])
+            if proprio:
+                self.campo_medico.definir(proprio)
+                self._ao_escolher_medico(proprio)
 
     # ------------------------------------------------------------ layout
     def _montar_filtros(self):
@@ -111,12 +117,18 @@ class TelaAgenda(ctk.CTkFrame):
             largura=150, state="disabled",
         )
         self.botao_liberar_dia.pack(side="left", padx=10)
+        if not regras_menu.pode(self.usuario["papel"], regras_menu.BLOQUEAR_AGENDA):
+            self.botao_bloquear_dia.pack_forget()  # a recepção só consulta a agenda
+            self.botao_liberar_dia.pack_forget()
 
         self.atualizar_grade()
 
     # ------------------------------------------------------------- busca
     def _buscar_medicos(self, texto, limite):
-        return profissionais.listar(texto, apenas_ativos=True, limite=limite)
+        lista = profissionais.listar(texto, apenas_ativos=True, limite=limite)
+        if self.usuario["papel"] == autenticacao.PAPEL_MEDICO:  # só enxerga a própria agenda
+            lista = [p for p in lista if p["id"] == self.usuario["profissional_id"]]
+        return lista
 
     @staticmethod
     def _texto_medico(p):
@@ -179,6 +191,14 @@ class TelaAgenda(ctk.CTkFrame):
             return
         pid = self.profissional["id"]
         faixa = f"{h['hora_inicio']} às {h['hora_fim']}"
+        if h["estado"] != agenda.RESERVADO and not regras_menu.pode(
+            self.usuario["papel"], regras_menu.BLOQUEAR_AGENDA
+        ):
+            messagebox.showinfo(
+                "Agenda",
+                "Somente o médico (na sua agenda) ou o administrador bloqueiam e liberam horários.",
+            )
+            return
         try:
             if h["estado"] == agenda.DISPONIVEL:
                 if not messagebox.askyesno(

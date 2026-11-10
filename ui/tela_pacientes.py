@@ -8,6 +8,7 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from services import acesso, pacientes
+from services import menu as regras_menu
 from services.validacoes import (
     MSG_EMAIL,
     ErroValidacao,
@@ -133,6 +134,9 @@ class TelaPacientes(ctk.CTkFrame):
             botoes, "Excluir", self.excluir, estilo="perigo", state="disabled"
         )
         self.botao_excluir.pack(side="left")
+        if not regras_menu.pode(self.usuario["papel"], regras_menu.DESATIVAR_EXCLUIR_PACIENTE):
+            self.botao_ativo.pack_forget()  # só o administrador desativa ou exclui
+            self.botao_excluir.pack_forget()
 
     def _montar_lista(self):
         cartao = componentes.cartao(self)
