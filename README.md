@@ -51,8 +51,19 @@ junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
 - O login não diferencia maiúsculas de minúsculas; a senha deve ter pelo menos 6 caracteres.
 - Depois de 5 tentativas erradas na tela de login, o programa fecha.
 - Existem três papéis: **Administrador**, **Atendente** (recepção) e **Médico** (veja a seção seguinte).
-- Usuários padrão criados na primeira execução: `super` / `super123` (Administrador) e `admin` / `admin123` (Atendente).
-  Troque essas senhas no primeiro acesso, em Usuários.
+- **Usuários e senhas de teste** (já cadastrados no `clinica.db` do repositório e criados também por `popular_dados_teste.py`):
+
+  | Usuário | Senha | Nome | Papel |
+  | --- | --- | --- | --- |
+  | `super` | `super123` | Super Usuário | Administrador |
+  | `admin` | `admin123` | Administrador | Atendente (usuário padrão do sistema) |
+  | `recepcao` | `recepcao123` | Camila Recepção | Atendente |
+  | `helena` | `medico123` | Dra. Helena Duarte | Médico (Pediatria) |
+  | `rafael` | `medico123` | Dr. Rafael Nogueira | Médico (Cardiologia) |
+  | `luiza` | `medico123` | Dra. Luiza Menezes | Médico (Dermatologia) |
+
+  Num banco novo (sem o `clinica.db`), só `super` e `admin` são criados automaticamente; os demais vêm do
+  `popular_dados_teste.py`. São senhas de demonstração: **troque-as** antes de usar com dados reais (tela Usuários).
 - Na tela **Usuários**, o Administrador cadastra usuários e, ao selecionar um da lista, altera nome, login, perfil,
   profissional do médico e situação (ativo/inativo), ou troca a senha (senha em branco mantém a atual). Também pode **excluir** um usuário (com confirmação).
 - Regras: só o Administrador gerencia usuários (conferido no banco a cada ação); não é possível desativar nem excluir o próprio
@@ -73,8 +84,7 @@ junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
   pontas), observações da consulta (até 500). Ao salvar uma alteração, as telas dizem *"Nenhuma alteração para salvar"* se nada mudou
   e pedem confirmação. Consulta paga ou confirmada não troca de paciente nem de médico.
 - **Dados fictícios para teste**: `python popular_dados_teste.py` (num banco novo) cria pacientes, profissionais, consultas, documentos
-  e anotações de exemplo. Logins: `super`/`super123` (Administrador); `admin`/`admin123` e `recepcao`/`recepcao123` (Atendente);
-  `helena`, `rafael` e `luiza` / `medico123` (Médico).
+  e anotações de exemplo. Os logins e senhas estão na tabela da seção *Login e usuários*.
 
 ## Personalizar a aparência
 
