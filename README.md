@@ -5,18 +5,22 @@ Aplicação desktop (CustomTkinter) com banco de dados SQLite e tela de login.
 
 ## Estado atual
 
-| Tela | Situação |
-| --- | --- |
-| Login | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria o `admin` e o super usuário `super` na primeira execução |
-| Pacientes | Funcionando: cadastrar, listar, buscar, alterar e excluir |
-| Profissionais | Funcionando: cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
-| Especialidades | Funcionando: cadastrar, valor da consulta (só super usuário), buscar em tempo real e excluir (se não houver vínculos) |
-| Agenda | Funcionando: horários do médico em 3 estados (disponível, reservado, indisponível), bloqueio de horário/dia |
-| Financeiro | Só super usuário: valores, pagamentos, painel recebido/pendente e histórico |
-| Consultas | Funcionando: agendar, listar, filtrar por situação, alterar/remarcar, marcar como realizada, cancelar e imprimir o comprovante de agendamento (bobina 80 mm ou 58 mm) |
+| Tela | Quem usa | Situação |
+| --- | --- | --- |
+| Login | todos | Funcionando: usuário e senha (senha guardada com hash PBKDF2); cria os usuários padrão na primeira execução |
+| Pacientes | Atendente, Administrador | Cadastrar, listar, buscar, alterar, desativar e excluir |
+| Profissionais | Administrador | Cadastrar, listar, buscar por nome/especialidade, alterar, inativar/ativar e excluir |
+| Especialidades | Administrador | Cadastrar, valor da consulta, buscar em tempo real e excluir (se não houver vínculos) |
+| Consultas | Atendente, Administrador, Médico | Agendar, listar, filtrar, remarcar, cancelar, confirmar (após o pagamento), marcar como realizada (médico) e imprimir o comprovante (bobina 80 mm ou 58 mm) |
+| Agenda | Atendente, Administrador, Médico | Horários do médico (disponível, reservado, indisponível) e bloqueio de horário/dia |
+| Financeiro | Administrador | Valores, pagamentos, painel recebido/pendente e histórico |
+| Documentos / Prontuário | Atendente (lê e entrega 2ª via), Médico (emite e reimprime) | Atestado e receituário guardados por paciente |
+| Histórico clínico | Médico | Anotações por paciente; só o autor altera, com versões anteriores guardadas |
+| Usuários | Administrador | Cadastrar e alterar usuários, perfil (papel) e profissional do médico |
 
-O banco é criado com as 5 tabelas do modelo (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`)
-e já vem com as especialidades iniciais: Clínica Geral, Pediatria, Cardiologia, Dermatologia e Ortopedia.
+O banco SQLite (`clinica.db`) é criado automaticamente, com as tabelas do modelo (`usuario`, `especialidade`, `paciente`,
+`profissional`, `consulta`, `bloqueio_agenda`, `financeiro_historico`, `documento_emitido`, `entrega_documento`,
+`historico_clinico` e `historico_clinico_revisao`) e já vem com as especialidades iniciais: Clínica Geral, Pediatria, Cardiologia, Dermatologia e Ortopedia.
 
 ## Requisitos
 
@@ -38,23 +42,22 @@ python main.py
 Na primeira execução o arquivo `clinica.db` é criado automaticamente na pasta do projeto,
 junto com o usuário padrão do login: **usuário `admin`, senha `admin123`**.
 
-> O repositório já inclui um `clinica.db` com poucos registros de exemplo, todos fictícios (nomes inventados, e-mails `@example.com` e CPFs gerados só para teste).
+> O repositório já inclui um `clinica.db` preenchido com dados de demonstração, todos fictícios (nomes inventados, e-mails `@exemplo.com` e CPFs gerados só para teste). Os logins de teste estão na seção *Papéis, histórico clínico e dados de teste*.
 > Para começar do zero, feche o programa e apague o arquivo `clinica.db`: ele é recriado
-> vazio (só com o `admin` e as especialidades iniciais) na próxima execução.
+> vazio (só com os usuários padrão e as especialidades iniciais) na próxima execução.
 
 ## Login e usuários
 
 - O login não diferencia maiúsculas de minúsculas; a senha deve ter pelo menos 6 caracteres.
 - Depois de 5 tentativas erradas na tela de login, o programa fecha.
-- Existem dois tipos de usuário: o **usuário comum** (usa pacientes, profissionais e consultas) e o
-  **super usuário**, que além disso vê o item **Usuários** no menu.
-- O super usuário padrão é criado automaticamente (se ainda não houver nenhum): **usuário `super`, senha `super123`**.
-  Troque essa senha no primeiro acesso, em Usuários.
-- Na tela **Usuários**, o super usuário cadastra novos usuários e, ao selecionar um da lista, altera nome, login,
-  perfil (super ou comum) e situação (ativo/inativo), ou troca a senha (senha em branco mantém a atual). Também pode **excluir** um usuário (com confirmação).
-- Regras: só um super usuário gerencia usuários (conferido no banco a cada ação); não é possível desativar nem excluir o próprio
-  usuário, nem deixar o sistema sem nenhum super usuário ativo.
-- Bancos antigos recebem a coluna `superusuario` automaticamente na próxima execução.
+- Existem três papéis: **Administrador**, **Atendente** (recepção) e **Médico** (veja a seção seguinte).
+- Usuários padrão criados na primeira execução: `super` / `super123` (Administrador) e `admin` / `admin123` (Atendente).
+  Troque essas senhas no primeiro acesso, em Usuários.
+- Na tela **Usuários**, o Administrador cadastra usuários e, ao selecionar um da lista, altera nome, login, perfil,
+  profissional do médico e situação (ativo/inativo), ou troca a senha (senha em branco mantém a atual). Também pode **excluir** um usuário (com confirmação).
+- Regras: só o Administrador gerencia usuários (conferido no banco a cada ação); não é possível desativar nem excluir o próprio
+  usuário, nem deixar o sistema sem nenhum Administrador ativo.
+- Bancos antigos são migrados automaticamente na próxima execução.
 
 ## Papéis, histórico clínico e dados de teste
 
@@ -110,9 +113,16 @@ python -m unittest discover -s tests -v
 | `ui/tela_consultas.py` | Tela de consultas: agendamento com pacientes/médicos cadastrados, filtros por situação, remarcação, cancelamento e botão "Imprimir comprovante". |
 | `services/agenda.py`, `services/especialidades.py`, `services/financeiro.py` | Agenda do médico, especialidades com valor da consulta e financeiro (pagamentos e histórico). |
 | `services/atestado.py`, `services/receituario.py`, `services/documentos.py` | Atestado e receituário (A4) e documentos emitidos, guardados por paciente. |
-| `tests/test_clinica.py`, `tests/test_novos_requisitos.py` | 87 testes automáticos das validações, das regras e da persistência dos dados de todas as entidades. |
-| `DOCUMENTOS/Relatorio_Sistema_Clinica_Equipe.docx` | Relatório do sistema produzido pela equipe. |
+| `tests/` | 173 testes automáticos: validações, regras de negócio, persistência, permissões por papel, documentos, pagamento e histórico clínico. |
+| `DOCUMENTOS/Relatorio_Sistema_Clinica_Equipe.docx` | Relatório final da equipe (entregue junto com o pacote). |
 | `__init__.py` (em `services/` e `ui/`) | Arquivos vazios que permitem importar as pastas como pacotes. |
+
+## Cancelamento no lugar de exclusão (consultas)
+
+Consultas **não são excluídas**: são **canceladas**, com motivo opcional. A decisão é deliberada: a consulta é ligada a
+pagamento (financeiro), documentos emitidos e histórico clínico, e esses registros precisam continuar rastreáveis. Cancelar
+libera o horário do profissional, mantém o histórico e permite auditar quem fez o quê. Já pacientes e profissionais
+podem ser excluídos quando não há vínculos; havendo vínculos, o sistema oferece **desativar**.
 
 ## Organização em camadas
 
@@ -158,7 +168,7 @@ Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seçã
 ## Novidades (requisitos de out/2026)
 
 - **Agenda** (`services/agenda.py`, `ui/tela_agenda.py`): expediente padrão 08:00–18:00, segunda a sexta, horários de 30 min (edite as constantes no topo de `services/agenda.py`). Horário indisponível não aceita agendamento.
-- **Valor por especialidade**: coluna `valor_consulta` (em centavos). Só o super usuário altera; conferido no back-end.
+- **Valor por especialidade**: coluna `valor_consulta` (em centavos). Só o Administrador altera; conferido no back-end.
 - **Financeiro** (`services/financeiro.py`, `ui/tela_financeiro.py`): pagamento, painel, filtros e histórico (quem e quando).
 - **Confirmação só após pagamento**: a consulta nasce *Agendada* + *Aguardando pagamento*; `consultas.confirmar()` e um gatilho no banco recusam confirmar sem pagamento.
 - **Comprovante** agora mostra valor e status do pagamento.
@@ -168,4 +178,4 @@ Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seçã
 - **Buscas** em tempo real, sem acento e parciais, com "Nenhum resultado encontrado" e "Limpar busca"; no agendamento há autocompletar (10 por vez) e atalho para cadastrar paciente.
 - Bancos antigos são migrados automaticamente na primeira execução.
 - **Receituário médico** (`services/receituario.py`): botão *Gerar receituário* na tela Consultas; dados do paciente e do médico automáticos, prescrição digitada, impressão em A4.
-- **Documentos salvos** (`services/documentos.py`, `ui/tela_prontuario.py`): atestados e receituários emitidos ficam no banco por paciente; só o super usuário vê (menu *Prontuário*) e reimprime.
+- **Documentos salvos** (`services/documentos.py`, `ui/tela_prontuario.py`): atestados e receituários emitidos ficam no banco por paciente; o Médico emite e reimprime os seus (menu *Prontuário*) e o Atendente só lê e entrega a 2ª via, com registro.
