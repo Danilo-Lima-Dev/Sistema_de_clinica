@@ -93,7 +93,7 @@ python -m unittest discover -s tests -v
 | --- | --- |
 | `main.py` | Ponto de entrada: cria o banco (se não existir), cria o usuário padrão e abre a janela no login. |
 | `requirements.txt` | Bibliotecas externas necessárias (CustomTkinter). |
-| `database.py` | Conexão com o SQLite e criação das 5 tabelas (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`). |
+| `database.py` | Conexão com o SQLite, criação e migração das 11 tabelas (`usuario`, `especialidade`, `paciente`, `profissional`, `consulta`, `bloqueio_agenda`, `financeiro_historico`, `documento_emitido`, `entrega_documento`, `historico_clinico` e `historico_clinico_revisao`), gatilhos e índice único. |
 | `clinica.db` | Banco de dados, criado automaticamente na primeira execução (o repositório traz um com dados de exemplo). |
 | `services/validacoes.py` | Funções de apoio: validação e formatação de CPF, datas, horários, telefone e e-mail. |
 | `services/pacientes.py` | Regras de negócio e SQL do cadastro de pacientes (cadastrar, listar, buscar, alterar, excluir). |
@@ -159,7 +159,7 @@ Os códigos entre parênteses (RN01 a RN07) são os mesmos do relatório, seçã
 - Paciente, profissional, data e horário obrigatórios; o horário vai no formato HH:MM (RN02).
 - Não é possível agendar com profissional inativo.
 - Não é possível agendar em data e hora que já passaram (RN05).
-- O mesmo profissional não pode ter duas consultas ativas no mesmo dia e horário de início; consultas canceladas não bloqueiam o horário (RN01).
+- **Sem conflito de horário (RN01):** cada consulta dura 30 minutos, então o mesmo profissional não pode ter duas consultas ativas **sobrepostas** (09:00 e 09:15 conflitam; 09:30 é aceito). A sobreposição é barrada no serviço, e o banco também barra horário idêntico (índice único). Consultas canceladas liberam o horário.
 - Cada consulta tem duração fixa de 30 minutos: o horário de término é calculado automaticamente.
 - Consultas canceladas ou já realizadas não podem ser alteradas. Uma consulta realizada não pode ser cancelada, e uma cancelada não pode ser marcada como realizada.
 - Ao selecionar uma consulta na tabela aparece o botão **Imprimir comprovante**, com os dados do paciente (CPF parcialmente oculto, ex.: `529.***.***-25`), do profissional, a especialidade, a data e o horário. Escolha o papel (80 mm ou 58 mm); o comprovante abre no navegador já com a janela de impressão, onde se escolhe a impressora térmica (em "Mais definições", deixe as margens em "Nenhuma" e desmarque cabeçalhos e rodapés).
